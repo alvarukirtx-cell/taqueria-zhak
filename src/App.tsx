@@ -119,6 +119,7 @@ export default function App() {
   // --- Precheck Google SignUp Info Preheating State ---
   const [regPhone, setRegPhone] = useState<string>('');
   const [regAddress, setRegAddress] = useState<string>('');
+  const [authError, setAuthError] = useState<string | null>(null);
 
   // --- Apply Theme Class ---
   useEffect(() => {
@@ -319,9 +320,39 @@ export default function App() {
             setActiveTab('menu');
           }
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error("Google Auth error:", err);
-        alert("Ocurrió un error al iniciar sesión con Google o se canceló el flujo.");
+        const errorCode = err?.code || '';
+        const errorMessage = err?.message || '';
+        
+        let customMsg = "Ocurrió un error al iniciar sesión con Google o se canceló el flujo.";
+        
+        if (
+          errorCode === 'auth/unauthorized-domain' || 
+          errorCode === 'auth/invalid-iframe-origin' || 
+          errorMessage.includes('unauthorized-domain') || 
+          errorMessage.includes('invalid-iframe-origin') ||
+          errorMessage.includes('requested action is invalid')
+        ) {
+          customMsg = `🔒 ¡Error de Dominio Autorizado (The requested action is invalid)! 
+
+Para solucionar esto de inmediato, debes registrar los dominios de la tienda en tu Consola de Firebase:
+1. Ve a console.firebase.google.com
+2. Selecciona tu proyecto: compact-beach-d07pf
+3. Ve a Authentication > pestaña Settings (Ajustes) > sección Authorized domains (Dominios autorizados)
+4. Agrega los siguientes dominios (copia y pega):
+   • ais-dev-upz5xlfmywqcrl6f6nti5l-452039373902.us-west2.run.app
+   • ais-pre-upz5xlfmywqcrl6f6nti5l-452039373902.us-west2.run.app
+
+⚠️ Además, asegúrate de abrir la aplicación en una pestaña nueva (con el botón de arriba a la derecha de la vista previa) en lugar de usarla dentro del iframe, ya que los navegadores bloquean las ventanas emergentes en iframes cruzados.`;
+        } else if (errorCode === 'auth/popup-blocked') {
+          customMsg = "🚫 El navegador bloqueó la ventana emergente de inicio de sesión de Google. Por favor, permite las ventanas emergentes (popups) para este sitio y reintenta.";
+        } else if (errorCode === 'auth/popup-closed-by-user') {
+          customMsg = "⚠️ La ventana emergente de inicio de sesión con Google fue cerrada antes de completar el proceso.";
+        }
+        
+        setAuthError(customMsg);
+        alert(customMsg);
       }
     } else {
       // Offline Simulation Warning
@@ -991,6 +1022,33 @@ export default function App() {
                   </div>
 
                   <div className="space-y-4 pt-4 border-t border-gray-150 dark:border-zinc-900">
+                    {authError && (
+                      <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/50 rounded-2xl p-4.5 flex flex-col gap-3">
+                        <div className="flex justify-between items-start">
+                          <h4 className="text-xs font-bold text-red-800 dark:text-red-400 uppercase tracking-wider flex items-center gap-2">
+                            <span>🔒 Configuración de Dominio / OAuth Requerida</span>
+                          </h4>
+                          <button 
+                            onClick={() => setAuthError(null)} 
+                            className="text-xs text-red-400 hover:text-red-650 dark:hover:text-red-300 font-bold"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                        <p className="text-[11px] text-red-700 dark:text-red-300 leading-relaxed">
+                          La acción de inicio de sesión fue rechazada por Firebase, usualmente porque este dominio de vista previa no ha sido registrado como autorizado.
+                        </p>
+                        <div className="bg-white dark:bg-zinc-900/90 rounded-xl p-3 border border-red-100 dark:border-zinc-800 text-[10px] font-mono text-zinc-600 dark:text-zinc-300 space-y-1">
+                          <p className="font-sans font-bold text-[9px] text-zinc-400 dark:text-zinc-500 uppercase tracking-widest leading-none mb-1">Dominios a añadir en Firebase Console:</p>
+                          <div className="select-all bg-zinc-50 dark:bg-zinc-950 p-1.5 rounded border border-zinc-205 dark:border-zinc-800 break-all text-red-650 dark:text-red-400">ais-dev-upz5xlfmywqcrl6f6nti5l-452039373902.us-west2.run.app</div>
+                          <div className="select-all bg-zinc-50 dark:bg-zinc-950 p-1.5 rounded border border-zinc-205 dark:border-zinc-800 break-all text-red-650 dark:text-red-400">ais-pre-upz5xlfmywqcrl6f6nti5l-452039373902.us-west2.run.app</div>
+                        </div>
+                        <p className="text-[10px] text-zinc-500 dark:text-zinc-400 leading-normal">
+                          💡 <strong>Para Administradores G Cloud:</strong> Si otros usuarios tampoco ingresan, ve a tu Google Cloud Console &gt; OAuth Consent Screen y cambia el estado de publicación de <strong>"Testing"</strong> a <strong>"In Production"</strong>, o añade sus correos como "Test Users".
+                        </p>
+                      </div>
+                    )}
+
                     <button
                       onClick={handleGoogleSignIn}
                       className="w-full bg-zinc-950 hover:bg-zinc-900 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-100 text-white font-bold py-3.5 px-4 rounded-xl text-xs sm:text-sm transition-all duration-200 flex items-center justify-center gap-2.5 shadow-md active:scale-[0.98]"
