@@ -80,6 +80,33 @@ export function isFirebaseConfigured(): boolean {
   );
 }
 
+export function isFirestoreActive(userId?: string): boolean {
+  if (!isFirebaseConfigured()) return false;
+  
+  if (userId && (
+    userId.startsWith('googlesim_') || 
+    userId.startsWith('admin_uid_') || 
+    userId.startsWith('user_uid_')
+  )) {
+    return false;
+  }
+
+  try {
+    const stored = localStorage.getItem('taqueria_villa_active_user');
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (parsed && parsed.uid && (
+        parsed.uid.startsWith('googlesim_') || 
+        parsed.uid.startsWith('admin_uid_') || 
+        parsed.uid.startsWith('user_uid_')
+      )) {
+        return false;
+      }
+    }
+  } catch (e) {}
+  return true;
+}
+
 // Ensure unique instantiation of Firebase
 let dbInstance: any = null;
 let authInstance: any = null;
@@ -172,12 +199,12 @@ export const DEVELOPER_ACCOUNTS: UserProfile[] = [
 // --- High-fidelity Database Interface Adapter ---
 export const dbService = {
   isUsingFirebase(): boolean {
-    return isFirebaseConfigured();
+    return isFirestoreActive();
   },
 
   // 1. PRODUCTS OPERATIONS
   async getProducts(): Promise<Product[]> {
-    if (isFirebaseConfigured()) {
+    if (isFirestoreActive()) {
       try {
         const querySnapshot = await getDocs(collection(db, 'productos'));
         const productsList: Product[] = [];
@@ -202,7 +229,7 @@ export const dbService = {
   },
 
   async saveProduct(product: Product): Promise<void> {
-    if (isFirebaseConfigured()) {
+    if (isFirestoreActive()) {
       try {
         await setDoc(doc(db, 'productos', product.id), product);
       } catch (err) {
@@ -221,7 +248,7 @@ export const dbService = {
   },
 
   async deleteProduct(id: string): Promise<void> {
-    if (isFirebaseConfigured()) {
+    if (isFirestoreActive()) {
       try {
         await deleteDoc(doc(db, 'productos', id));
       } catch (err) {
@@ -236,7 +263,7 @@ export const dbService = {
 
   // 2. USER PROFILE OPERATIONS
   async saveUserProfile(profile: UserProfile): Promise<void> {
-    if (isFirebaseConfigured()) {
+    if (isFirestoreActive(profile.uid)) {
       try {
         await setDoc(doc(db, 'usuarios', profile.uid), profile);
       } catch (err) {
@@ -255,7 +282,7 @@ export const dbService = {
   },
 
   async getUserProfile(uid: string, fallbackEmail?: string, fallbackName?: string): Promise<UserProfile | null> {
-    if (isFirebaseConfigured()) {
+    if (isFirestoreActive(uid)) {
       try {
         const userDoc = await getDoc(doc(db, 'usuarios', uid));
         if (userDoc.exists()) {
@@ -302,7 +329,7 @@ export const dbService = {
   },
 
   async getAllRegisteredUsers(): Promise<UserProfile[]> {
-    if (isFirebaseConfigured()) {
+    if (isFirestoreActive()) {
       try {
         const querySnapshot = await getDocs(collection(db, 'usuarios'));
         const list: UserProfile[] = [];
@@ -321,7 +348,7 @@ export const dbService = {
 
   // 3. ORDERS OPERATIONS
   async getOrders(userId?: string): Promise<Order[]> {
-    if (isFirebaseConfigured()) {
+    if (isFirestoreActive(userId)) {
       try {
         const colRef = collection(db, 'pedidos');
         const qRef = userId ? query(colRef, where('userId', '==', userId)) : colRef;
@@ -345,7 +372,7 @@ export const dbService = {
   },
 
   async saveOrder(order: Order): Promise<void> {
-    if (isFirebaseConfigured()) {
+    if (isFirestoreActive(order.userId)) {
       try {
         await setDoc(doc(db, 'pedidos', order.id), order);
       } catch (err) {
@@ -364,7 +391,7 @@ export const dbService = {
   },
 
   async updateOrderStatus(orderId: string, status: OrderStatus): Promise<void> {
-    if (isFirebaseConfigured()) {
+    if (isFirestoreActive()) {
       try {
         await updateDoc(doc(db, 'pedidos', orderId), { 
           status,
@@ -411,7 +438,7 @@ export const dbService = {
 
   // 4. HISTORICAL SALES OPERATIONS
   async getSales(): Promise<Sale[]> {
-    if (isFirebaseConfigured()) {
+    if (isFirestoreActive()) {
       try {
         const querySnapshot = await getDocs(collection(db, 'ventas'));
         const list: Sale[] = [];
@@ -429,7 +456,7 @@ export const dbService = {
   },
 
   async recordSale(sale: Sale): Promise<void> {
-    if (isFirebaseConfigured()) {
+    if (isFirestoreActive()) {
       try {
         await setDoc(doc(db, 'ventas', sale.id), sale);
       } catch (err) {
@@ -446,7 +473,7 @@ export const dbService = {
 
   // 5. CANCELLED ORDERS OPERATIONS
   async getCancelledOrders(): Promise<CancelledOrder[]> {
-    if (isFirebaseConfigured()) {
+    if (isFirestoreActive()) {
       try {
         const querySnapshot = await getDocs(collection(db, 'pedidos_cancelados'));
         const list: CancelledOrder[] = [];
@@ -464,7 +491,7 @@ export const dbService = {
   },
 
   async recordCancelledOrder(cancelRecord: CancelledOrder): Promise<void> {
-    if (isFirebaseConfigured()) {
+    if (isFirestoreActive()) {
       try {
         await setDoc(doc(db, 'pedidos_cancelados', cancelRecord.id), cancelRecord);
       } catch (err) {

@@ -230,7 +230,7 @@ export default function App() {
       const prodList = await dbService.getProducts();
       setProducts(prodList);
 
-      if (isFirebaseConfigured()) {
+      if (dbService.isUsingFirebase()) {
         if (currentUser) {
           if (currentUser.role === 'admin') {
             // Admin gets all active datasets
@@ -262,7 +262,7 @@ export default function App() {
         }
       } else {
         // Local simulation / fallback mode loads all
-        const orderList = await dbService.getOrders();
+        const orderList = await dbService.getOrders(currentUser?.role === 'admin' ? undefined : currentUser?.uid);
         setOrders(orderList);
 
         const salesList = await dbService.getSales();
@@ -286,11 +286,11 @@ export default function App() {
 
     // Setup periodic sync / polling rules for simulated state, or real listeners
     let interval: any;
-    if (!isFirebaseConfigured()) {
+    if (!dbService.isUsingFirebase()) {
       interval = setInterval(() => {
         // Quietly sync local changes
         dbService.getProducts().then(setProducts);
-        dbService.getOrders().then(newOrders => {
+        dbService.getOrders(currentUser?.role === 'admin' ? undefined : currentUser?.uid).then(newOrders => {
           // Detect if a new order entered from perspective of Admin!
           if (currentUser?.role === 'admin') {
             const currentOrderIds = new Set(orders.map(o => o.id));
@@ -298,7 +298,7 @@ export default function App() {
             if (freshOrder && freshOrder.status === 'pendiente') {
               playNotificationSound();
               setNewOrderToast(freshOrder);
-              setTimeout(() => setNewOrderToast(null), 8000); // clear after 8s
+              setTimeout(() => setNewOrderToast(null), 8500); // clear after 8.5s
             }
           }
           setOrders(newOrders);
@@ -315,7 +315,7 @@ export default function App() {
 
   // Real-time listener fallback for when Firestore is connected
   useEffect(() => {
-    if (isFirebaseConfigured() && db && currentUser) {
+    if (dbService.isUsingFirebase() && db && currentUser) {
       // Create a query based on role. Standard users are restricted by rules to their own orders.
       const colRef = collection(db, 'pedidos');
       const q = currentUser.role === 'admin'
@@ -448,10 +448,8 @@ export default function App() {
       setCartAddress(profileAddress);
       setCartPhone(profilePhone);
       
-      // Update local storage if in simulation
-      if (!isFirebaseConfigured()) {
-        localStorage.setItem(LOCAL_STORAGE_KEYS.CURRENT_USER, JSON.stringify(updated));
-      }
+      // Update local storage
+      localStorage.setItem(LOCAL_STORAGE_KEYS.CURRENT_USER, JSON.stringify(updated));
       
       alert("¡Perfil guardado correctamente!");
     } catch (err) {
@@ -632,7 +630,7 @@ export default function App() {
       setOrders(prev => [newOrder, ...prev]);
 
       // Trigger automatic prompt chime warning logic instantly (local mode)
-      if (!isFirebaseConfigured()) {
+      if (!dbService.isUsingFirebase()) {
         playNotificationSound();
       }
 
