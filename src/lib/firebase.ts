@@ -320,10 +320,12 @@ export const dbService = {
   },
 
   // 3. ORDERS OPERATIONS
-  async getOrders(): Promise<Order[]> {
+  async getOrders(userId?: string): Promise<Order[]> {
     if (isFirebaseConfigured()) {
       try {
-        const querySnapshot = await getDocs(collection(db, 'pedidos'));
+        const colRef = collection(db, 'pedidos');
+        const qRef = userId ? query(colRef, where('userId', '==', userId)) : colRef;
+        const querySnapshot = await getDocs(qRef);
         const list: Order[] = [];
         querySnapshot.forEach((doc) => {
           list.push(doc.data() as Order);
@@ -334,7 +336,10 @@ export const dbService = {
         return [];
       }
     } else {
-      const list = getLocalData<Order[]>(LOCAL_STORAGE_KEYS.ORDERS, []);
+      let list = getLocalData<Order[]>(LOCAL_STORAGE_KEYS.ORDERS, []);
+      if (userId) {
+        list = list.filter(o => o.userId === userId);
+      }
       return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     }
   },
