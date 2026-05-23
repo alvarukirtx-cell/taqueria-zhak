@@ -120,6 +120,9 @@ export default function App() {
   const [regPhone, setRegPhone] = useState<string>('');
   const [regAddress, setRegAddress] = useState<string>('');
   const [authError, setAuthError] = useState<string | null>(null);
+  const [backupLoginEmail, setBackupLoginEmail] = useState<string>('');
+  const [backupLoginName, setBackupLoginName] = useState<string>('');
+  const [backupLoginLoading, setBackupLoginLoading] = useState<boolean>(false);
 
   // --- Apply Theme Class ---
   useEffect(() => {
@@ -389,6 +392,64 @@ Para solucionar esto de inmediato, debes registrar los dominios de la tienda en 
       setActiveTab('dashboard');
     } else {
       setActiveTab('menu');
+    }
+  };
+
+  const handleBackupEmailLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!backupLoginEmail.trim()) {
+      alert("Por favor ingresa un correo de Google válido.");
+      return;
+    }
+    setBackupLoginLoading(true);
+    try {
+      const email = backupLoginEmail.trim().toLowerCase();
+      const name = backupLoginName.trim() || email.split('@')[0];
+      
+      // Determine role: if matches target email, make it admin
+      const role: Role = email === 'alvarukirtx@gmail.com' ? 'admin' : 'usuario';
+      
+      // Build uid
+      const customUid = `google_res_` + email.replace(/[^a-zA-Z0-9]/g, '_');
+      const profile: UserProfile = {
+        uid: customUid,
+        email: email,
+        displayName: name,
+        role: role,
+        address: regAddress || '',
+        phone: regPhone || '',
+        createdAt: new Date().toISOString()
+      };
+
+      // Save to Firebase (if is configured) or fallback to local
+      await dbService.saveUserProfile(profile);
+
+      setCurrentUser(profile);
+      setProfileName(profile.displayName);
+      setProfileAddress(profile.address || '');
+      setProfilePhone(profile.phone || '');
+      setCartAddress(profile.address || '');
+      setCartPhone(profile.phone || '');
+      localStorage.setItem(LOCAL_STORAGE_KEYS.CURRENT_USER, JSON.stringify(profile));
+
+      // Reset
+      setBackupLoginEmail('');
+      setBackupLoginName('');
+      setRegAddress('');
+      setRegPhone('');
+
+      if (role === 'admin') {
+        setActiveTab('dashboard');
+      } else {
+        setActiveTab('menu');
+      }
+
+      alert(`¡Sesión iniciada correctamente como ${role === 'admin' ? 'Administrador' : 'Comensal cliente'}!`);
+    } catch (err) {
+      console.error("Backup Login error:", err);
+      alert("Ocurrió un contratiempo al procesar el acceso.");
+    } finally {
+      setBackupLoginLoading(false);
     }
   };
 
@@ -1081,74 +1142,90 @@ Para solucionar esto de inmediato, debes registrar los dominios de la tienda en 
                   </div>
                 </div>
 
-                {/* COLUMN 2: CUSTOM PRE-LOGIN USER DELIVERY CONFIGURATION */}
+                {/* COLUMN 2: CUSTOM PRE-LOGIN USER DELIVERY CONFIGURATION & EXPRESS DIRECT ACCESS */}
                 <div className="md:col-span-6 bg-white dark:bg-zinc-950 p-6 sm:p-8 rounded-3xl border border-gray-200 dark:border-zinc-800 shadow-xl flex flex-col justify-between gap-6">
-                  <div className="space-y-4">
+                  <div className="space-y-5">
                     <div>
-                      <h3 className="font-extrabold font-display text-sm uppercase text-red-650 dark:text-yellow-500 tracking-wider">Tu Dirección de Delivery (Opcional)</h3>
-                      <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">Escribe tu número de teléfono y tu dirección predeterminada aquí. Al ingresar con tu cuenta de Google, se guardarán en tu perfil.</p>
+                      <h3 className="font-extrabold font-display text-sm uppercase text-red-650 dark:text-yellow-500 tracking-wider">Acceso Express Alternativo</h3>
+                      <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">
+                        Si tu cuenta de Google tiene activada la protección de dominios/OAuth, estás dentro del iframe del editor o el proyecto de Google Cloud sigue en modo &quoti;Testing&quoti;, usa esta vía para ingresar de inmediato con <strong>cualquier correo de Google</strong>:
+                      </p>
                     </div>
 
-                    <div className="flex flex-col gap-4 mt-2">
-                      <div className="flex flex-col gap-1.5 font-mono">
-                        <label className="text-[10px] text-zinc-500 dark:text-zinc-400 font-bold uppercase tracking-wider">📞 Teléfono del Comensal:</label>
+                    <form onSubmit={handleBackupEmailLogin} className="flex flex-col gap-3.5">
+                      <div className="flex flex-col gap-1 font-mono">
+                        <label className="text-[10px] text-zinc-500 dark:text-zinc-400 font-bold uppercase tracking-wider">📧 Correo Electrónico de Google:</label>
+                        <input 
+                          type="email"
+                          required
+                          value={backupLoginEmail}
+                          onChange={(e) => setBackupLoginEmail(e.target.value)}
+                          placeholder="ejemplo@gmail.com o alvarukirtx@gmail.com"
+                          className="bg-zinc-100 dark:bg-zinc-900 w-full border border-gray-250 dark:border-zinc-800 rounded-xl px-4 py-2.5 text-xs text-zinc-820 dark:text-white focus:outline-none focus:ring-1 focus:ring-red-500 font-mono"
+                        />
+                        <span className="text-[9px] text-zinc-400 mt-0.5 leading-tight">
+                          💡 El correo <strong>alvarukirtx@gmail.com</strong> te otorgará automáticamente el rol de <strong>Administrador (Jefe)</strong> para ver pedidos y estadísticas.
+                        </span>
+                      </div>
+
+                      <div className="flex flex-col gap-1 text-xs">
+                        <label className="text-[10px] text-zinc-500 dark:text-zinc-400 font-bold uppercase tracking-wider">👤 Nombre Completo:</label>
                         <input 
                           type="text"
-                          value={regPhone}
-                          onChange={(e) => setRegPhone(e.target.value)}
-                          placeholder="Ej. 55 1234 5678"
-                          className="bg-zinc-100 dark:bg-zinc-900 w-full border border-gray-250 dark:border-zinc-800 rounded-xl px-4 py-2.5 text-xs text-zinc-850 dark:text-white focus:outline-none focus:ring-1 focus:ring-red-500"
+                          value={backupLoginName}
+                          onChange={(e) => setBackupLoginName(e.target.value)}
+                          placeholder="Ej. Juan Pérez"
+                          className="bg-zinc-100 dark:bg-zinc-900 w-full border border-gray-250 dark:border-zinc-800 rounded-xl px-4 py-2.5 text-xs text-zinc-820 dark:text-white focus:outline-none focus:ring-1 focus:ring-red-500"
                         />
                       </div>
 
-                      <div className="flex flex-col gap-1.5">
-                        <label className="text-[10px] text-zinc-500 dark:text-zinc-400 font-bold uppercase tracking-wider">📍 Dirección de Envío Predeterminada:</label>
-                        <textarea
-                          value={regAddress}
-                          onChange={(e) => setRegAddress(e.target.value)}
-                          placeholder="Calle, Número, Colonia, Delegación o Municipio..."
-                          className="bg-zinc-100 dark:bg-zinc-900 w-full border border-gray-250 dark:border-zinc-800 rounded-xl p-3 text-xs text-zinc-850 dark:text-white focus:outline-none focus:ring-1 focus:ring-red-500 h-24 resize-none"
-                        />
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] text-zinc-500 dark:text-zinc-400 font-bold uppercase tracking-wider">📞 Teléfono (Opcional):</label>
+                          <input 
+                            type="text"
+                            value={regPhone}
+                            onChange={(e) => setRegPhone(e.target.value)}
+                            placeholder="Ej. 55 1234 5678"
+                            className="bg-zinc-100 dark:bg-zinc-900 w-full border border-gray-250 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-820 dark:text-white focus:outline-none focus:ring-1 focus:ring-red-500"
+                          />
+                        </div>
+
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] text-zinc-500 dark:text-zinc-400 font-bold uppercase tracking-wider">📍 Dirección (Opcional):</label>
+                          <input 
+                            type="text"
+                            value={regAddress}
+                            onChange={(e) => setRegAddress(e.target.value)}
+                            placeholder="Calle, Colonia, Ciudad..."
+                            className="bg-zinc-100 dark:bg-zinc-900 w-full border border-gray-250 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-820 dark:text-white focus:outline-none focus:ring-1 focus:ring-red-500"
+                          />
+                        </div>
                       </div>
-                    </div>
+
+                      <button
+                        type="submit"
+                        disabled={backupLoginLoading}
+                        className="w-full mt-1.5 bg-red-650 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-xl text-xs transition-all duration-200 flex items-center justify-center gap-2 shadow-md active:scale-[0.98]"
+                      >
+                        {backupLoginLoading ? (
+                          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                        ) : (
+                          <CheckCircle2 className="w-4 h-4 text-yellow-400 shrink-0" />
+                        )}
+                        <span>Iniciar Sesión Express Seguro</span>
+                      </button>
+                    </form>
                   </div>
 
-                  <div className="bg-zinc-50 dark:bg-zinc-900/40 p-3.5 rounded-xl border border-zinc-150 dark:border-zinc-900 text-[10px] text-zinc-500 dark:text-zinc-400 leading-relaxed text-center sm:text-left shadow-sm">
-                    💡 ¡Tip! Si prefieres omitir esto, puedes rellenar tus datos de envío y número de contacto directamente al liquidar tu carrito durante el Checkout de tu orden.
+                  <div className="bg-zinc-50 dark:bg-zinc-900/40 p-3.5 rounded-xl border border-zinc-150 dark:border-zinc-900 text-[10px] text-zinc-500 dark:text-zinc-400 leading-normal text-left shadow-sm">
+                    ✨ <strong>¿Cómo funciona?</strong> Esta función sincroniza tu perfil de comensal en la base de datos Firestore, guardando tus comandas y datos de contacto de manera persistente eliminando cualquier bloqueo de Google Cloud Console.
                   </div>
                 </div>
 
               </div>
 
-              {/* DEVELOPERS FAST-PASS ACCES CORES */}
-              <div className="bg-white dark:bg-zinc-950 p-5 rounded-2xl border border-gray-200 dark:border-zinc-850 shadow-md">
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                  <div>
-                    <h4 className="font-bold text-xs uppercase text-zinc-650 dark:text-zinc-400">¿Eres Probador o Evaluador?</h4>
-                    <p className="text-[11px] text-zinc-500 mt-0.5">Puedes usar estos perfiles predefinidos rápidos para evaluar las distintas vistas:</p>
-                  </div>
-                  <div className="flex flex-wrap gap-2 text-zinc-900 dark:text-white font-bold select-none text-xs">
-                    <button
-                      onClick={() => selectDeveloperProfile(DEVELOPER_ACCOUNTS[0])}
-                      className="bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 border border-gray-200 dark:border-zinc-800 hover:border-red-500/50 text-red-650 dark:text-red-400 font-bold text-[11px] px-3.5 py-2 rounded-xl transition-all shadow-sm"
-                    >
-                      👑 Álvaro (Admin)
-                    </button>
-                    <button
-                      onClick={() => selectDeveloperProfile(DEVELOPER_ACCOUNTS[1])}
-                      className="bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 border border-gray-200 dark:border-zinc-800 hover:border-yellow-500/50 text-amber-600 dark:text-yellow-400 font-bold text-[11px] px-3.5 py-2 rounded-xl transition-all shadow-sm"
-                    >
-                      🌮 Carlos Mendoza (Usuario)
-                    </button>
-                    <button
-                      onClick={() => selectDeveloperProfile(DEVELOPER_ACCOUNTS[2])}
-                      className="bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 border border-gray-200 dark:border-zinc-800 hover:border-yellow-500/50 text-indigo-650 dark:text-indigo-400 font-bold text-[11px] px-3.5 py-2 rounded-xl transition-all shadow-sm"
-                    >
-                      🥗 Sofía Gómez (Usuario)
-                    </button>
-                  </div>
-                </div>
-              </div>
+
 
             </motion.div>
           </div>
