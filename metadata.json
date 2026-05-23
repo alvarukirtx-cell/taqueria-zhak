@@ -1,0 +1,6 @@
+{
+  "name": "Taquería Villa",
+  "description": "Aplicación móvil y web moderna para pedidos de Taquería Villa con panel administrador protegido por roles y carrito en tiempo real.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

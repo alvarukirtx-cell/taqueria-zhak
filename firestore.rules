@@ -1,0 +1,116 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net (Default Deny Catcall)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Primitives & Global Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && 
+             isEmailVerified() && 
+             request.auth.token.email == "alvarukirtx@gmail.com";
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // 3. Entity Specific Field Validators
+    function isValidUser(data) {
+      return data.uid == request.auth.uid &&
+             data.email == request.auth.token.email &&
+             (data.role == "usuario" || (data.role == "admin" && request.auth.token.email == "alvarukirtx@gmail.com")) &&
+             data.keys().hasAll(["uid", "email", "role"]) &&
+             (!("phone" in data) || (data.phone is string && data.phone.size() <= 50)) &&
+             (!("address" in data) || (data.address is string && data.address.size() <= 500));
+    }
+
+    function isValidProduct(data) {
+      return data.keys().hasAll(["id", "name", "category", "price", "available"]) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.name is string && data.name.size() <= 100 &&
+             data.category in ["tacos", "bebidas", "extras", "postres"] &&
+             data.price is number && data.price >= 0 &&
+             data.price <= 10000 &&
+             data.available is bool &&
+             (!("description" in data) || (data.description is string && data.description.size() <= 1000));
+    }
+
+    function isValidOrder(data) {
+      return data.keys().hasAll(["id", "userId", "userEmail", "items", "deliveryAddress", "deliveryPhone", "status", "total"]) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.userId == request.auth.uid &&
+             data.userEmail == request.auth.token.email &&
+             data.status in ["pendiente", "preparacion", "en_camino", "entregado", "cancelado"] &&
+             data.total is number && data.total >= 0 &&
+             data.items is list && data.items.size() <= 50 &&
+             data.deliveryAddress is string && data.deliveryAddress.size() <= 500 &&
+             data.deliveryPhone is string && data.deliveryPhone.size() <= 50;
+    }
+
+    function isValidOrderUpdateAdmin(data) {
+      return data.keys().hasAll(["id", "userId", "userEmail", "items", "deliveryAddress", "deliveryPhone", "status", "total"]) &&
+             data.status in ["pendiente", "preparacion", "en_camino", "entregado", "cancelado"];
+    }
+
+    // 4. Matches per Collection
+    match /usuarios/{userId} {
+      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+      allow create, update: if isSignedIn() && request.auth.uid == userId && isValidUser(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /productos/{productId} {
+      allow read, get, list: if true; // Menu browseable by everyone
+      allow create, update, delete: if isAdmin() && isValidProduct(request.resource.data);
+    }
+
+    match /pedidos/{pedidoId} {
+      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      
+      // Placed order can only start as 'pendiente' for standard clients
+      allow create: if isSignedIn() && 
+                    isEmailVerified() && 
+                    isValidId(pedidoId) &&
+                    request.resource.data.status == "pendiente" && 
+                    isValidOrder(request.resource.data);
+
+      // Clients can modify their own non-accepted (pendiente) requests, or cancel them
+      allow update: if isSignedIn() && (
+        isAdmin() && isValidOrderUpdateAdmin(request.resource.data)
+      ) || (
+        !isAdmin() &&
+        isEmailVerified() &&
+        resource.data.userId == request.auth.uid &&
+        resource.data.status == "pendiente" &&
+        (request.resource.data.status == "pendiente" || request.resource.data.status == "cancelado") &&
+        isValidOrder(request.resource.data)
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    match /ventas/{saleId} {
+      allow read, write, get, list: if isAdmin();
+    }
+
+    match /pedidos_cancelados/{cancelId} {
+      allow read, get, list: if isAdmin();
+      allow create: if isSignedIn() && isEmailVerified(); // Standard users can write cancellation logs when they cancel their own orders
+      allow update, delete: if isAdmin();
+    }
+  }
+}

@@ -1,0 +1,102 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Information about registered users including address and role.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The unique Firebase Auth identifier of the user" },
+        "email": { "type": "string", "description": "User email address" },
+        "displayName": { "type": "string", "description": "Full name of the user" },
+        "role": { "type": "string", "enum": ["admin", "usuario"], "description": "Permissions role of the user" },
+        "address": { "type": "string", "description": "Optional physical delivery address" },
+        "phone": { "type": "string", "description": "Optional phone number" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Product": {
+      "title": "Product Item",
+      "description": "A menu product item offered by Taquería Villa.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique product identifier" },
+        "name": { "type": "string", "description": "Name of taco, beverage, postre, or extra" },
+        "category": { "type": "string", "enum": ["tacos", "bebidas", "extras", "postres"], "description": "Category group" },
+        "price": { "type": "number", "description": "Item unit price" },
+        "description": { "type": "string", "description": "Ingredients or size description" },
+        "available": { "type": "boolean", "description": "Whether the product is currently in stock" }
+      },
+      "required": ["id", "name", "category", "price", "available"]
+    },
+    "Order": {
+      "title": "Customer Order",
+      "description": "A food order submitted by a customer.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique order ID" },
+        "userId": { "type": "string", "description": "UID of the client who made the order" },
+        "userEmail": { "type": "string", "description": "Email of the client" },
+        "userName": { "type": "string", "description": "Name of the client" },
+        "items": { "type": "array", "description": "List of food and beverage items ordered" },
+        "observations": { "type": "string", "description": "Special request or observation details" },
+        "deliveryAddress": { "type": "string", "description": "Specified address for this order" },
+        "deliveryPhone": { "type": "string", "description": "Phone number for delivery" },
+        "status": { "type": "string", "enum": ["pendiente", "preparacion", "en_camino", "entregado", "cancelado"], "description": "Order progression status" },
+        "total": { "type": "number", "description": "Total payment amount" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the order was placed" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last updated timestamp" }
+      },
+      "required": ["id", "userId", "userEmail", "items", "deliveryAddress", "deliveryPhone", "status", "total"]
+    },
+    "Sale": {
+      "title": "Sales Record",
+      "description": "A historic record of a completed transaction.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique sale identifier" },
+        "pedidoId": { "type": "string", "description": "Reference ID to the originating order" },
+        "total": { "type": "number", "description": "Transaction total amount" },
+        "date": { "type": "string", "description": "Sales date format YYYY-MM-DD" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
+      },
+      "required": ["id", "pedidoId", "total", "date"]
+    },
+    "CancelledOrder": {
+      "title": "Cancelled Order Log",
+      "description": "A historical log of cancelled user orders.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Cancellation record ID" },
+        "pedidoId": { "type": "string", "description": "Referential ID of the underlying order" },
+        "userId": { "type": "string", "description": "UID of the user who canceled or admin" },
+        "userEmail": { "type": "string", "description": "Email of the user" },
+        "reason": { "type": "string", "description": "Cancellation reason text" },
+        "cancelledAt": { "type": "string", "format": "date-time", "description": "Exact moment of cancellation" }
+      },
+      "required": ["id", "pedidoId", "userId", "reason", "cancelledAt"]
+    }
+  },
+  "firestore": {
+    "/usuarios/{userId}": {
+      "schema": "User",
+      "description": "Colleccion de perfiles de usuario y datos de contacto de Taquería Villa"
+    },
+    "/productos/{productId}": {
+      "schema": "Product",
+      "description": "Menu de tacos, bebidas, extras y postres ofrecidos por Taquería Villa"
+    },
+    "/pedidos/{pedidoId}": {
+      "schema": "Order",
+      "description": "Pedidos activos e historicos registrados en el sistema"
+    },
+    "/ventas/{saleId}": {
+      "schema": "Sale",
+      "description": "Registro de ventas individuales correspondientes a pedidos entregados"
+    },
+    "/pedidos_cancelados/{cancelId}": {
+      "schema": "CancelledOrder",
+      "description": "Pedidos cancelados y motivos correspondientes"
+    }
+  }
+}
