@@ -83,6 +83,27 @@ export default function App() {
   const [customizerPostre, setCustomizerPostre] = useState<string>('');
   const [customizerObservations, setCustomizerObservations] = useState<string>('');
 
+  // Live aggregate price calculator for custom bundle in real-time
+  const customizerTotalPrice = useMemo(() => {
+    if (!customizerProduct) return 0;
+    let sum = customizerProduct.price;
+    if (customizerBeverage) {
+      const matchBev = products.find(p => p.id === customizerBeverage);
+      if (matchBev) sum += matchBev.price;
+    }
+    Object.keys(customizerExtras).forEach(extraId => {
+      if (customizerExtras[extraId]) {
+        const matchExtra = products.find(p => p.id === extraId);
+        if (matchExtra) sum += matchExtra.price;
+      }
+    });
+    if (customizerPostre) {
+      const matchPostre = products.find(p => p.id === customizerPostre);
+      if (matchPostre) sum += matchPostre.price;
+    }
+    return sum * customizerQuantity;
+  }, [customizerProduct, customizerBeverage, customizerExtras, customizerPostre, customizerQuantity, products]);
+
   // --- User Editing Profile State ---
   const [profileName, setProfileName] = useState<string>('');
   const [profileAddress, setProfileAddress] = useState<string>('');
@@ -1923,28 +1944,28 @@ export default function App() {
                           exit={{ opacity: 0, scale: 0.95 }}
                           id="meal-customizer-modal"
                           className={`w-full max-w-lg rounded-2xl p-6 shadow-2xl border ${
-                            darkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-gray-200'
+                            darkMode ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-white border-gray-200 text-zinc-900'
                           } flex flex-col gap-4 max-h-[90vh] overflow-y-auto`}
                         >
                           <div className="flex justify-between items-start">
                             <div>
-                              <span className="text-[10px] uppercase font-bold text-red-600 dark:text-yellow-400 font-mono">🍔 Armar Comanda Premium</span>
-                              <h3 className="font-extrabold font-display text-xl leading-none mt-1">{customizerProduct.name}</h3>
-                              <p className="text-xs text-zinc-450 mt-1.5">{customizerProduct.description}</p>
+                              <span className={`text-[10px] uppercase font-bold font-mono ${darkMode ? 'text-yellow-400' : 'text-red-600'}`}>🍔 Armar Comanda Premium</span>
+                              <h3 className={`font-extrabold font-display text-xl leading-none mt-1 ${darkMode ? 'text-white' : 'text-zinc-900'}`}>{customizerProduct.name}</h3>
+                              <p className={`text-xs mt-1.5 ${darkMode ? 'text-zinc-400' : 'text-zinc-550'}`}>{customizerProduct.description}</p>
                             </div>
                             <button 
                               onClick={() => setCustomizerProduct(null)} 
-                              className="text-zinc-400 hover:text-white p-1 rounded-full hover:bg-zinc-900"
+                              className={`p-1 rounded-full hover:bg-zinc-900/60 transition-colors ${darkMode ? 'text-zinc-400 hover:text-white' : 'text-gray-400 hover:text-gray-700'}`}
                             >
                               <X className="w-5 h-5" />
                             </button>
                           </div>
 
-                          <div className="flex flex-col gap-4 py-2 division-t divide-zinc-850">
+                          <div className={`flex flex-col gap-4 py-2 divide-y ${darkMode ? 'divide-zinc-900' : 'divide-gray-100'}`}>
                             
                             {/* 1. SELECCION DE TORTILLA */}
-                            <div className="flex flex-col gap-2">
-                              <label className="text-xs font-bold uppercase tracking-wider text-red-650 dark:text-yellow-400">1. Tipo de Tortilla:</label>
+                            <div className="flex flex-col gap-2 pt-2">
+                              <label className={`text-xs font-bold uppercase tracking-wider ${darkMode ? 'text-yellow-400' : 'text-red-700'}`}>1. Tipo de Tortilla:</label>
                               <div className="grid grid-cols-3 gap-2">
                                 {['Maíz', 'Harina', 'Doble Maíz'].map(type => (
                                   <button
@@ -1953,8 +1974,8 @@ export default function App() {
                                     onClick={() => setCustomizerTacoType(type)}
                                     className={`px-3 py-2 rounded-xl text-center text-xs font-semibold border transition-all ${
                                       customizerTacoType === type 
-                                        ? 'bg-red-600 text-white border-red-500 ring-2 ring-red-400/20' 
-                                        : 'bg-zinc-900 border-zinc-800 text-zinc-300'
+                                        ? 'bg-red-600 text-white border-red-500 ring-2 ring-red-400/20 shadow-sm' 
+                                        : (darkMode ? 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:bg-zinc-850' : 'bg-gray-100 border-gray-200 text-gray-700 hover:bg-gray-200')
                                     }`}
                                   >
                                     {type}
@@ -1964,12 +1985,14 @@ export default function App() {
                             </div>
 
                             {/* 2. AGREGAR BEBIDA COMPAÑERA DENTRO DE PEDIDO */}
-                            <div className="flex flex-col gap-2">
-                              <label className="text-xs font-bold uppercase tracking-wider text-red-650 dark:text-yellow-400">2. Acompañar con Bebida (Opcional):</label>
+                            <div className="flex flex-col gap-2 pt-3">
+                              <label className={`text-xs font-bold uppercase tracking-wider ${darkMode ? 'text-yellow-400' : 'text-red-700'}`}>2. Acompañar con Bebida (Opcional):</label>
                               <select 
                                 value={customizerBeverage}
                                 onChange={(e) => setCustomizerBeverage(e.target.value)}
-                                className="bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs text-zinc-300 focus:outline-none focus:ring-1 focus:ring-red-600"
+                                className={`border rounded-xl px-3 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-red-650 ${
+                                  darkMode ? 'bg-zinc-900 border-zinc-800 text-zinc-300' : 'bg-gray-50 border-gray-300 text-gray-800'
+                                }`}
                               >
                                 <option value="">-- Sin Bebida Combinada --</option>
                                 {products.filter(p => p.category === 'bebidas' && p.available).map(bev => (
@@ -1979,8 +2002,8 @@ export default function App() {
                             </div>
 
                             {/* 3. EXTRAS */}
-                            <div className="flex flex-col gap-2">
-                              <label className="text-xs font-bold uppercase tracking-wider text-red-650 dark:text-yellow-400">3. Añadir Extras:</label>
+                            <div className="flex flex-col gap-2 pt-3">
+                              <label className={`text-xs font-bold uppercase tracking-wider ${darkMode ? 'text-yellow-400' : 'text-red-700'}`}>3. Añadir Extras:</label>
                               <div className="grid grid-cols-2 gap-2">
                                 {products.filter(p => p.category === 'extras' && p.available).map(ext => {
                                   const isChecked = !!customizerExtras[ext.id];
@@ -1991,12 +2014,12 @@ export default function App() {
                                       onClick={() => setCustomizerExtras({ ...customizerExtras, [ext.id]: !isChecked })}
                                       className={`px-3 py-2.5 rounded-xl text-left text-xs font-semibold border transition-all flex justify-between items-center ${
                                         isChecked 
-                                          ? 'bg-zinc-900 border-yellow-500 text-yellow-300' 
-                                          : 'bg-zinc-900/40 border-zinc-850 text-zinc-400'
+                                          ? (darkMode ? 'bg-zinc-900 border-yellow-500 text-yellow-300 font-bold' : 'bg-red-50 border-red-500 text-red-650 font-bold') 
+                                          : (darkMode ? 'bg-zinc-900/40 border-zinc-850 text-zinc-400 hover:bg-zinc-900' : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100')
                                       }`}
                                     >
                                       <span>{ext.name}</span>
-                                      <span className="font-mono text-zinc-550">+${ext.price}</span>
+                                      <span className={`font-mono text-xs ${isChecked ? (darkMode ? 'text-yellow-400' : 'text-red-600') : 'text-gray-505'}`}>+${ext.price}</span>
                                     </button>
                                   );
                                 })}
@@ -2004,12 +2027,14 @@ export default function App() {
                             </div>
 
                             {/* 4. POSTRE */}
-                            <div className="flex flex-col gap-2">
-                              <label className="text-xs font-bold uppercase tracking-wider text-red-650 dark:text-yellow-400">4. Cerrar con Postre (Opcional):</label>
+                            <div className="flex flex-col gap-2 pt-3">
+                              <label className={`text-xs font-bold uppercase tracking-wider ${darkMode ? 'text-yellow-400' : 'text-red-700'}`}>4. Cerrar con Postre (Opcional):</label>
                               <select 
                                 value={customizerPostre}
                                 onChange={(e) => setCustomizerPostre(e.target.value)}
-                                className="bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs text-zinc-300 focus:outline-none focus:ring-1 focus:ring-red-600"
+                                className={`border rounded-xl px-3 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-red-650 ${
+                                  darkMode ? 'bg-zinc-900 border-zinc-800 text-zinc-300' : 'bg-gray-50 border-gray-300 text-gray-800'
+                                }`}
                               >
                                 <option value="">-- Sin Postre Cerrador --</option>
                                 {products.filter(p => p.category === 'postres' && p.available).map(pos => (
@@ -2019,32 +2044,42 @@ export default function App() {
                             </div>
 
                             {/* 5. NOTES AND OBSERVATIONS */}
-                            <div className="flex flex-col gap-1.5">
-                              <label className="text-xs font-bold uppercase tracking-wider text-red-650 dark:text-yellow-400">5. Observaciones especiales:</label>
+                            <div className="flex flex-col gap-1.5 pt-3">
+                              <label className={`text-xs font-bold uppercase tracking-wider ${darkMode ? 'text-yellow-400' : 'text-red-700'}`}>5. Observaciones especiales:</label>
                               <textarea
                                 value={customizerObservations}
                                 onChange={(e) => setCustomizerObservations(e.target.value)}
                                 placeholder="Ej: Sin cebolla, piña extra, la salsa verde bien separada por favor..."
-                                className="bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:ring-1 focus:ring-red-600 h-16 resize-none"
+                                className={`border rounded-xl p-3 text-xs h-16 resize-none focus:outline-none focus:ring-1 focus:ring-red-650 ${
+                                  darkMode ? 'bg-zinc-900 border-zinc-800 text-white placeholder-zinc-500' : 'bg-gray-50 border-gray-300 text-gray-800 placeholder-gray-400'
+                                }`}
                               />
                             </div>
 
                             {/* 6. QUANTITY CONTROLLER */}
-                            <div className="flex justify-between items-center border-t border-zinc-850 pt-3">
-                              <span className="text-xs font-bold text-zinc-300 uppercase">Cantidad:</span>
+                            <div className="flex justify-between items-center pt-3">
+                              <span className={`text-xs font-bold uppercase ${darkMode ? 'text-zinc-300' : 'text-gray-700'}`}>Cantidad:</span>
                               <div className="flex items-center gap-3">
                                 <button 
                                   type="button"
                                   onClick={() => setCustomizerQuantity(Math.max(1, customizerQuantity - 1))}
-                                  className="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-350 flex items-center justify-center font-bold hover:bg-zinc-800 hover:text-white"
+                                  className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold border transition-colors ${
+                                    darkMode 
+                                      ? 'bg-zinc-900 border-zinc-800 text-zinc-350 hover:bg-zinc-800 hover:text-white' 
+                                      : 'bg-gray-100 border-gray-200 text-gray-600 hover:bg-gray-200 hover:text-black font-semibold'
+                                  }`}
                                 >
                                   -
                                 </button>
-                                <span className="font-mono font-bold text-base w-6 text-center text-white">{customizerQuantity}</span>
+                                <span className={`font-mono font-bold text-base w-6 text-center ${darkMode ? 'text-white' : 'text-zinc-800'}`}>{customizerQuantity}</span>
                                 <button 
                                   type="button"
                                   onClick={() => setCustomizerQuantity(customizerQuantity + 1)}
-                                  className="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-350 flex items-center justify-center font-bold hover:bg-zinc-800 hover:text-white"
+                                  className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold border transition-colors ${
+                                    darkMode 
+                                      ? 'bg-zinc-900 border-zinc-800 text-zinc-350 hover:bg-zinc-800 hover:text-white' 
+                                      : 'bg-gray-100 border-gray-200 text-gray-600 hover:bg-gray-200 hover:text-black font-semibold'
+                                  }`}
                                 >
                                   +
                                 </button>
@@ -2053,19 +2088,23 @@ export default function App() {
 
                           </div>
 
-                          <div className="flex gap-2.5 border-t border-zinc-850 pt-4 mt-2">
+                          <div className={`flex gap-2.5 border-t pt-4 mt-2 ${darkMode ? 'border-zinc-800' : 'border-gray-150'}`}>
                             <button
                               onClick={() => setCustomizerProduct(null)}
-                              className="flex-1 bg-zinc-900 text-zinc-400 py-3 rounded-xl font-bold text-xs hover:bg-zinc-850 hover:text-zinc-200"
+                              className={`flex-1 py-3 rounded-xl font-bold text-xs transition-colors ${
+                                darkMode 
+                                  ? 'bg-zinc-900 text-zinc-400 hover:bg-zinc-850 hover:text-zinc-200' 
+                                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-800'
+                              }`}
                             >
                               Regresar
                             </button>
                             <button
                               onClick={handleAddBundleToCart}
-                              className="flex-1 bg-red-600 text-white hover:bg-red-700 font-bold text-xs py-3 rounded-xl shadow-md flex justify-center items-center gap-2"
+                              className="flex-1 bg-red-650 text-white hover:bg-red-750 font-bold text-xs py-3 rounded-xl shadow-md flex justify-center items-center gap-2 transition-all active:scale-[0.98]"
                             >
                               <ShoppingBag className="w-4 h-4" />
-                              Guardar en Carrito
+                              Guardar en Carrito (${customizerTotalPrice.toFixed(2)} MXN)
                             </button>
                           </div>
 
@@ -2214,14 +2253,22 @@ export default function App() {
                               value={cancelReasonText}
                               onChange={(e) => setCancelReasonText(e.target.value)}
                               placeholder="Ej. Me equivoqué de tacos, tardó demasiado..."
-                              className="bg-zinc-90 w-full border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-red-500"
+                              className={`w-full border rounded-xl px-3.5 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-red-500 ${
+                                darkMode 
+                                  ? 'bg-zinc-900 border-zinc-800 text-white placeholder-zinc-500' 
+                                  : 'bg-gray-100 border-gray-300 text-zinc-850 placeholder-gray-400'
+                              }`}
                             />
 
                             <div className="flex gap-2 border-t border-zinc-850 pt-3">
                               <button
                                 type="button"
                                 onClick={() => setCancelOrderReasonId(null)}
-                                className="flex-1 bg-zinc-90 text-zinc-300 py-2 rounded-xl text-xs font-semibold hover:bg-zinc-800"
+                                className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-colors ${
+                                  darkMode 
+                                    ? 'bg-zinc-900 text-zinc-350 hover:bg-zinc-800' 
+                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                }`}
                               >
                                 Regresar
                               </button>
@@ -2243,58 +2290,68 @@ export default function App() {
 
               {/* 3. CUSTOMER PROFILE ADDRESS BOOK CONFIG */}
               {activeTab === 'perfil' && (
-                <div className="bg-zinc-950 p-6 rounded-2xl border border-zinc-800 shadow-xl flex flex-col gap-6">
+                <div className={`p-6 rounded-2xl border shadow-xl flex flex-col gap-6 ${
+                  darkMode ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-white border-gray-200 text-zinc-900'
+                }`}>
                   <div>
-                    <h3 className="font-extrabold font-display text-base text-zinc-100">Mis Datos de Entrega y Envío</h3>
-                    <p className="text-xs text-zinc-400">Guarda tus datos de contacto por defecto para que tus pedidos salgan más velozmente.</p>
+                    <h3 className={`font-extrabold font-display text-base ${darkMode ? 'text-zinc-100' : 'text-gray-900'}`}>Mis Datos de Entrega y Envío</h3>
+                    <p className={`text-xs ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>Guarda tus datos de contacto por defecto para que tus pedidos salgan más velozmente.</p>
                   </div>
 
                   <form onSubmit={handleSaveProfile} className="flex flex-col gap-4">
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-xs text-zinc-400 font-semibold uppercase">Nombre del Comensal:</label>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-zinc-450' : 'text-gray-500'}`}>Nombre del Comensal:</label>
                       <input 
                         type="text" 
                         required
                         value={profileName}
                         onChange={(e) => setProfileName(e.target.value)}
-                        className="bg-zinc-90 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs text-white"
+                        className={`border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-red-500 ${
+                          darkMode ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-gray-50 border-gray-300 text-gray-800'
+                        }`}
                       />
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       
                       <div className="flex flex-col gap-1.5">
-                        <label className="text-xs text-zinc-400 font-semibold uppercase">Email de Google:</label>
+                        <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-zinc-455' : 'text-gray-500'}`}>Email de Google:</label>
                         <input 
                           type="email" 
                           disabled
                           value={currentUser.email}
-                          className="bg-zinc-90 border border-zinc-800/80 rounded-xl px-4 py-2.5 text-xs text-zinc-550 cursor-not-allowed"
+                          className={`border rounded-xl px-4 py-2.5 text-xs cursor-not-allowed ${
+                            darkMode ? 'bg-zinc-900/60 border-zinc-800 text-zinc-500' : 'bg-gray-150 border-gray-300 text-gray-500'
+                          }`}
                         />
                       </div>
 
-                      <div className="flex flex-col gap-1.5">
-                        <label className="text-xs text-zinc-400 font-semibold uppercase">Teléfono de Contacto:</label>
+                      <div className="flex flex-col gap-1.5 font-mono">
+                        <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-zinc-455' : 'text-gray-500'}`}>Teléfono de Contacto:</label>
                         <input 
                           type="text" 
                           required
                           value={profilePhone}
                           onChange={(e) => setProfilePhone(e.target.value)}
                           placeholder="Ej: 5543210987"
-                          className="bg-zinc-90 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs text-white font-mono"
+                          className={`border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-red-500 font-mono ${
+                            darkMode ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-gray-50 border-gray-300 text-gray-800 font-medium'
+                          }`}
                         />
                       </div>
 
                     </div>
 
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-xs text-zinc-400 font-semibold uppercase">Dirección de Entrega Predeterminada:</label>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-zinc-455' : 'text-gray-500'}`}>Dirección de Entrega Predeterminada:</label>
                       <textarea
                         required
                         value={profileAddress}
                         onChange={(e) => setProfileAddress(e.target.value)}
                         placeholder="Calle, Número, Colonia, Municipio, Código Postal..."
-                        className="bg-zinc-90 border border-zinc-800 rounded-xl p-3.5 text-xs text-white h-20 resize-none font-medium leading-relaxed focus:ring-1 focus:ring-red-600"
+                        className={`border rounded-xl p-3.5 text-xs h-20 resize-none font-medium leading-relaxed focus:outline-none focus:ring-1 focus:ring-red-655 ${
+                          darkMode ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-gray-50 border-gray-300 text-gray-855'
+                        }`}
                       />
                     </div>
 
@@ -2315,15 +2372,17 @@ export default function App() {
             <div className="lg:col-span-4 sticky top-24 flex flex-col gap-6">
               
               <div className={`rounded-3xl border p-5 shadow-xl flex flex-col gap-4 ${
-                darkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-gray-200'
+                darkMode ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-white border-gray-200 text-zinc-900'
               }`}>
                 
-                <div className="flex justify-between items-center border-b border-zinc-850 pb-3">
+                <div className={`flex justify-between items-center border-b pb-3 ${darkMode ? 'border-zinc-800' : 'border-gray-100'}`}>
                   <div className="flex items-center gap-2">
-                    <ShoppingBag className="w-5 h-5 text-red-600" />
+                    <ShoppingBag className="w-5 h-5 text-red-650" />
                     <h3 className="font-extrabold font-display text-base tracking-tight text-red-650 dark:text-yellow-400">Carrito de Tacos</h3>
                   </div>
-                  <span className="font-mono text-xs font-semibold bg-zinc-90 border border-zinc-800 text-zinc-400 px-2.5 py-0.5 rounded-full">
+                  <span className={`font-mono text-xs font-semibold px-2.5 py-0.5 rounded-full border ${
+                    darkMode ? 'bg-zinc-900 border-zinc-800 text-zinc-400' : 'bg-gray-100 border-gray-200 text-gray-600'
+                  }`}>
                     {cart.reduce((sum, i) => sum + i.quantity, 0)} items
                   </span>
                 </div>
@@ -2331,9 +2390,9 @@ export default function App() {
                 {/* CART ITEMS CONTAINER */}
                 {cart.length === 0 ? (
                   <div className="py-12 text-center text-zinc-500 text-xs flex flex-col items-center gap-2">
-                    <Utensils className="w-8 h-8 text-zinc-700 stroke-[1.5] mb-1" />
-                    <p className="font-semibold text-zinc-700 dark:text-zinc-300">Tu carrito de tacos está vacío</p>
-                    <p className="text-[11px] leading-relaxed max-w-[200px] mx-auto text-zinc-550">Haz clic en los productos para armar tus combinados o agregar bebidas.</p>
+                    <Utensils className={`w-8 h-8 stroke-[1.5] mb-1 ${darkMode ? 'text-zinc-700' : 'text-zinc-300'}`} />
+                    <p className={`font-semibold ${darkMode ? 'text-zinc-300' : 'text-zinc-755'}`}>Tu carrito de tacos está vacío</p>
+                    <p className={`text-[11px] leading-relaxed max-w-[200px] mx-auto ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>Haz clic en los productos para armar tus combinados o agregar bebidas.</p>
                   </div>
                 ) : (
                   <div className="flex flex-col gap-3 max-h-64 overflow-y-auto pr-1">
@@ -2342,13 +2401,15 @@ export default function App() {
                         <div 
                           key={index} 
                           id={`cart-item-row-${index}`}
-                          className="bg-zinc-900/40 p-3 rounded-xl border border-zinc-850 flex flex-col gap-2 relative group"
+                          className={`p-3 rounded-xl border flex flex-col gap-2 relative group ${
+                            darkMode ? 'bg-zinc-900/40 border-zinc-855' : 'bg-gray-50 border-gray-150'
+                          }`}
                         >
                           <div className="flex justify-between items-start gap-4">
-                            <span className="text-xs font-bold leading-tight truncate w-[80%]">{item.name}</span>
+                            <span className={`text-xs font-bold leading-tight truncate w-[80%] ${darkMode ? 'text-zinc-100' : 'text-zinc-805'}`}>{item.name}</span>
                             <button 
                               onClick={() => removeFromCart(item.productId)}
-                              className="text-zinc-500 hover:text-red-500 absolute top-2 right-2 p-1"
+                              className="text-zinc-500 hover:text-red-500 absolute top-2 right-2 p-1 transition-colors"
                               title="Remover"
                             >
                               <X className="w-3.5 h-3.5" />
@@ -2356,20 +2417,30 @@ export default function App() {
                           </div>
 
                           <div className="flex justify-between items-center text-xs">
-                            <span className="font-mono text-yellow-500 font-semibold">${item.price.toFixed(2)} c/u</span>
+                            <span className="font-mono text-yellow-500 dark:text-yellow-450 font-semibold">${item.price.toFixed(2)} c/u</span>
                             
                             {/* Quantity controller in cart */}
-                            <div className="flex items-center gap-2 bg-zinc-90 border border-zinc-800 rounded-lg p-0.5">
+                            <div className={`flex items-center gap-2 border rounded-lg p-0.5 ${
+                              darkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-gray-250'
+                            }`}>
                               <button 
                                 onClick={() => updateCartQty(item.productId, -1)}
-                                className="w-5 h-5 rounded hover:bg-zinc-800 hover:text-white flex items-center justify-center font-bold text-zinc-400"
+                                type="button"
+                                className={`w-5 h-5 rounded flex items-center justify-center font-bold text-xs transition-colors ${
+                                  darkMode ? 'hover:bg-zinc-800 text-zinc-400 hover:text-white' : 'hover:bg-gray-100 text-gray-500 hover:text-gray-900'
+                                }`}
                               >
                                 -
                               </button>
-                              <span className="font-mono font-bold text-[11px] text-white w-4 text-center">{item.quantity}</span>
+                              <span className={`font-mono font-bold text-[11px] w-4 text-center ${
+                                darkMode ? 'text-white' : 'text-zinc-800'
+                              }`}>{item.quantity}</span>
                               <button 
                                 onClick={() => updateCartQty(item.productId, 1)}
-                                className="w-5 h-5 rounded hover:bg-zinc-800 hover:text-white flex items-center justify-center font-bold text-zinc-400"
+                                type="button"
+                                className={`w-5 h-5 rounded flex items-center justify-center font-bold text-xs transition-colors ${
+                                  darkMode ? 'hover:bg-zinc-800 text-zinc-400 hover:text-white' : 'hover:bg-gray-100 text-gray-500 hover:text-gray-900'
+                                }`}
                               >
                                 +
                               </button>
@@ -2383,54 +2454,64 @@ export default function App() {
 
                 {/* CHECKOUT CREDENTIALS FORM */}
                 {cart.length > 0 && (
-                  <form onSubmit={handleSubmitOrder} className="border-t border-zinc-850 pt-4 flex flex-col gap-3.5">
+                  <form onSubmit={handleSubmitOrder} className={`border-t pt-4 flex flex-col gap-3.5 ${
+                    darkMode ? 'border-zinc-800' : 'border-gray-150'
+                  }`}>
                     
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-[10px] uppercase text-zinc-450 tracking-wider font-bold">📍 Dirección exacta de envío:</label>
+                      <label className={`text-[10px] uppercase tracking-wider font-bold ${darkMode ? 'text-zinc-400' : 'text-gray-500'}`}>📍 Dirección exacta de envío:</label>
                       <input 
                         type="text" 
                         required
                         value={cartAddress}
                         onChange={(e) => setCartAddress(e.target.value)}
                         placeholder="Ingresa tu dirección de casa u oficina..."
-                        className="bg-zinc-90 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-red-600"
+                        className={`border rounded-xl px-3 py-2.5 text-xs focus:ring-1 focus:ring-red-600 focus:outline-none ${
+                          darkMode ? 'bg-zinc-900 border-zinc-800 text-white placeholder-zinc-500' : 'bg-gray-105 border-gray-300 text-gray-800 placeholder-gray-400'
+                        }`}
                       />
                     </div>
 
                     <div className="flex flex-col gap-1.5 font-mono">
-                      <label className="text-[10px] uppercase text-zinc-450 tracking-wider font-bold">📞 Teléfono para aviso de llegada:</label>
+                      <label className={`text-[10px] uppercase tracking-wider font-bold ${darkMode ? 'text-zinc-400' : 'text-gray-500'}`}>📞 Teléfono para aviso de llegada:</label>
                       <input 
                         type="text" 
                         required
                         value={cartPhone}
                         onChange={(e) => setCartPhone(e.target.value)}
                         placeholder="Ej. 55 1234 5678"
-                        className="bg-zinc-90 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-red-600"
+                        className={`border rounded-xl px-3 py-2.5 text-xs focus:ring-1 focus:ring-red-655 focus:outline-none font-mono ${
+                          darkMode ? 'bg-zinc-900 border-zinc-800 text-white placeholder-zinc-500' : 'bg-gray-105 border-gray-300 text-gray-800 placeholder-gray-400'
+                        }`}
                       />
                     </div>
 
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-[10px] uppercase text-zinc-450 tracking-wider font-bold">📝 Indicaciones rápidas:</label>
+                      <label className={`text-[10px] uppercase tracking-wider font-bold ${darkMode ? 'text-zinc-400' : 'text-gray-500'}`}>📝 Indicaciones rápidas:</label>
                       <input 
                         type="text" 
                         value={cartObservations}
                         onChange={(e) => setCartObservations(e.target.value)}
                         placeholder="Notas como departamento 402, tocar timbre..."
-                        className="bg-zinc-90 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-red-600"
+                        className={`border rounded-xl px-3 py-2.5 text-xs focus:ring-1 focus:ring-red-655 focus:outline-none ${
+                          darkMode ? 'bg-zinc-900 border-zinc-800 text-white placeholder-zinc-500' : 'bg-gray-105 border-gray-300 text-gray-800 placeholder-gray-400'
+                        }`}
                       />
                     </div>
 
                     {/* BUDGET BILL SUMMARY */}
-                    <div className="bg-zinc-900/60 p-3.5 rounded-2xl border border-zinc-850 divide-y divide-zinc-850 select-none">
-                      <div className="flex justify-between text-xs pb-1.5 text-zinc-350">
+                    <div className={`p-3.5 rounded-2xl border select-none divide-y ${
+                      darkMode ? 'bg-zinc-900/60 border-zinc-850 divide-zinc-800/80' : 'bg-gray-50 border-gray-200 divide-gray-100'
+                    }`}>
+                      <div className={`flex justify-between text-xs pb-1.5 ${darkMode ? 'text-zinc-350' : 'text-gray-655'}`}>
                         <span>Subtotal de Taco Menú</span>
-                        <span className="font-mono">${cartTotal.toFixed(2)}</span>
+                        <span className="font-mono text-xs font-semibold">${cartTotal.toFixed(2)}</span>
                       </div>
-                      <div className="flex justify-between text-xs py-1.5 text-zinc-350">
+                      <div className={`flex justify-between text-xs py-1.5 ${darkMode ? 'text-zinc-355' : 'text-gray-655'}`}>
                         <span>Envío Express Taquero</span>
-                        <span className="font-mono text-emerald-400">Gratis ($0)</span>
+                        <span className="font-mono text-emerald-500 text-xs font-semibold">Gratis ($0)</span>
                       </div>
-                      <div className="flex justify-between text-sm pt-2 text-zinc-100 font-extrabold font-display">
+                      <div className={`flex justify-between text-sm pt-2 font-extrabold font-display ${darkMode ? 'text-zinc-100' : 'text-zinc-855'}`}>
                         <span>Total neto neto</span>
                         <span className="font-mono text-red-500 dark:text-yellow-400 text-base">${cartTotal.toFixed(2)} MXN</span>
                       </div>
@@ -2439,7 +2520,7 @@ export default function App() {
                     <button
                       type="submit"
                       disabled={isSubmittingOrder}
-                      className="w-full bg-red-650 text-white font-bold hover:bg-red-700 py-3.5 rounded-2xl text-xs transition-shadow shadow-lg flex justify-center items-center gap-2 cursor-pointer outline-none"
+                      className="w-full bg-red-650 text-white font-bold hover:bg-red-750 py-3.5 rounded-2xl text-xs transition-shadow shadow-lg flex justify-center items-center gap-2 cursor-pointer outline-none active:scale-[0.98] transition-all"
                     >
                       <CheckCircle2 className="w-5 h-5 text-yellow-400 group-hover:scale-110 transition-transform" />
                       <span>{isSubmittingOrder ? 'Comandando orden...' : 'Confirmar Pedido Villa'}</span>
