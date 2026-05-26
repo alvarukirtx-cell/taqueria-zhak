@@ -33,13 +33,15 @@ import {
   PlusCircle, 
   Edit3, 
   AlertCircle,
-  Eye
+  Eye,
+  MessageSquare,
+  CheckSquare
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut as fbSignOut } from 'firebase/auth';
 import { onSnapshot, collection, query, where } from 'firebase/firestore';
 import { dbService, auth, DEVELOPER_ACCOUNTS, isFirebaseConfigured, db } from './lib/firebase';
-import { Product, Order, UserProfile, Sale, CancelledOrder, Category, OrderItem, OrderStatus, Role, DashboardStats } from './types';
+import { Product, Order, UserProfile, Sale, CancelledOrder, Complaint, ShiftTransfer, Category, OrderItem, OrderStatus, Role, DashboardStats } from './types';
 import { playNotificationSound } from './utils/audio';
 
 const LOCAL_STORAGE_KEYS = {
@@ -64,6 +66,19 @@ export default function App() {
   const [cancelledOrders, setCancelledOrders] = useState<CancelledOrder[]>([]);
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [loadingData, setLoadingData] = useState<boolean>(true);
+
+  // --- New Complaints and Shift Earnings State ---
+  const [complaints, setComplaints] = useState<Complaint[]>([]);
+  const [selectedComplaintId, setSelectedComplaintId] = useState<string | null>(null);
+  const [complaintResponseText, setComplaintResponseText] = useState<string>('');
+  
+  const [shiftTransfers, setShiftTransfers] = useState<ShiftTransfer[]>([]);
+  const [transferAmountText, setTransferAmountText] = useState<string>('');
+  const [transferCommentsText, setTransferCommentsText] = useState<string>('');
+
+  const [newComplaintSubject, setNewComplaintSubject] = useState<string>('Calidad del Servicio');
+  const [newComplaintMessage, setNewComplaintMessage] = useState<string>('');
+  const [submittingComplaint, setSubmittingComplaint] = useState<boolean>(false);
 
   // --- Active Tab / UI Section Views ---
   // Users: 'menu' | 'historial' | 'perfil'
@@ -184,6 +199,8 @@ export default function App() {
             // Redirect admin to dashboard view, standard user to restaurant menu
             if (profile.role === 'admin') {
               setActiveTab('dashboard');
+            } else if (profile.role === 'empleado') {
+              setActiveTab('pedidos');
             } else {
               setActiveTab('menu');
             }
@@ -202,6 +219,8 @@ export default function App() {
               setCartPhone(profile.phone || '');
               if (profile.role === 'admin') {
                 setActiveTab('dashboard');
+              } else if (profile.role === 'empleado') {
+                setActiveTab('pedidos');
               } else {
                 setActiveTab('menu');
               }
@@ -229,6 +248,8 @@ export default function App() {
           setCartPhone(profile.phone || '');
           if (profile.role === 'admin') {
             setActiveTab('dashboard');
+          } else if (profile.role === 'empleado') {
+            setActiveTab('pedidos');
           } else {
             setActiveTab('menu');
           }
@@ -251,10 +272,28 @@ export default function App() {
       const prodList = await dbService.getProducts();
       setProducts(prodList);
 
+      // Load complaints (if admin/empleado load all; else load customer's only)
+      if (currentUser) {
+        const complaintsList = await dbService.getComplaints(
+          currentUser.role === 'admin' || currentUser.role === 'empleado' 
+            ? undefined 
+            : currentUser.uid
+        );
+        setComplaints(complaintsList);
+
+        if (currentUser.role === 'admin' || currentUser.role === 'empleado') {
+          const transfersList = await dbService.getShiftTransfers();
+          setShiftTransfers(transfersList);
+        }
+      } else {
+        setComplaints([]);
+        setShiftTransfers([]);
+      }
+
       if (dbService.isUsingFirebase()) {
         if (currentUser) {
-          if (currentUser.role === 'admin') {
-            // Admin gets all active datasets
+          if (currentUser.role === 'admin' || currentUser.role === 'empleado') {
+            // Admin and Empleados get all active orders
             const orderList = await dbService.getOrders();
             setOrders(orderList);
 
@@ -283,7 +322,8 @@ export default function App() {
         }
       } else {
         // Local simulation / fallback mode loads all
-        const orderList = await dbService.getOrders(currentUser?.role === 'admin' ? undefined : currentUser?.uid);
+        const isAdminOrEmployee = currentUser?.role === 'admin' || currentUser?.role === 'empleado';
+        const orderList = await dbService.getOrders(isAdminOrEmployee ? undefined : currentUser?.uid);
         setOrders(orderList);
 
         const salesList = await dbService.getSales();
@@ -311,9 +351,11 @@ export default function App() {
       interval = setInterval(() => {
         // Quietly sync local changes
         dbService.getProducts().then(setProducts);
-        dbService.getOrders(currentUser?.role === 'admin' ? undefined : currentUser?.uid).then(newOrders => {
-          // Detect if a new order entered from perspective of Admin!
-          if (currentUser?.role === 'admin') {
+        
+        const isAdminOrEmployee = currentUser?.role === 'admin' || currentUser?.role === 'empleado';
+        dbService.getOrders(isAdminOrEmployee ? undefined : currentUser?.uid).then(newOrders => {
+          // Detect if a new order entered from perspective of Admin or Empleado!
+          if (isAdminOrEmployee) {
             const currentOrderIds = new Set(orders.map(o => o.id));
             const freshOrder = newOrders.find(o => !currentOrderIds.has(o.id));
             if (freshOrder && freshOrder.status === 'pendiente') {
@@ -327,6 +369,13 @@ export default function App() {
         dbService.getSales().then(setSales);
         dbService.getCancelledOrders().then(setCancelledOrders);
         dbService.getAllRegisteredUsers().then(setAllUsers);
+        
+        if (currentUser) {
+          dbService.getComplaints(isAdminOrEmployee ? undefined : currentUser.uid).then(setComplaints);
+          if (isAdminOrEmployee) {
+            dbService.getShiftTransfers().then(setShiftTransfers);
+          }
+        }
       }, 3000);
     }
     return () => {
@@ -339,7 +388,8 @@ export default function App() {
     if (dbService.isUsingFirebase() && db && currentUser) {
       // Create a query based on role. Standard users are restricted by rules to their own orders.
       const colRef = collection(db, 'pedidos');
-      const q = currentUser.role === 'admin'
+      const isAdminOrEmployee = currentUser.role === 'admin' || currentUser.role === 'empleado';
+      const q = isAdminOrEmployee
         ? colRef
         : query(colRef, where('userId', '==', currentUser.uid));
 
@@ -350,8 +400,8 @@ export default function App() {
         });
         const sorted = orderList.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         
-        // Notify admin of incoming orders
-        if (currentUser?.role === 'admin' && orders.length > 0) {
+        // Notify admin/employee of incoming orders
+        if (isAdminOrEmployee && orders.length > 0) {
           const currentIds = new Set(orders.map(o => o.id));
           const inbound = sorted.find(o => !currentIds.has(o.id));
           if (inbound && inbound.status === 'pendiente') {
@@ -404,6 +454,8 @@ export default function App() {
       setSimulatingGoogleSession(false);
       if (profile.role === 'admin') {
         setActiveTab('dashboard');
+      } else if (profile.role === 'empleado') {
+        setActiveTab('pedidos');
       } else {
         setActiveTab('menu');
       }
@@ -443,6 +495,8 @@ export default function App() {
     // Redirect
     if (profile.role === 'admin') {
       setActiveTab('dashboard');
+    } else if (profile.role === 'empleado') {
+      setActiveTab('pedidos');
     } else {
       setActiveTab('menu');
     }
@@ -641,6 +695,22 @@ export default function App() {
     try {
       // Save order to DB
       await dbService.saveOrder(newOrder);
+
+      // Automatic direct transfer to Jefe Álvaro for Carlos Mendoza and Sofía Gómez
+      const isCarlosOrSofia = currentUser.email === 'carlos.mendoza@gmail.com' || currentUser.email === 'sofia.gomez@gmail.com';
+      if (isCarlosOrSofia) {
+        const autoTransfer: ShiftTransfer = {
+          id: 'trans-' + Date.now() + '-auto',
+          employeeId: currentUser.uid,
+          employeeName: `${currentUser.displayName} (Pago Directo)`,
+          employeeEmail: currentUser.email,
+          amount: cartTotal,
+          comments: `Compra automática del cliente ${currentUser.displayName}. El dinero de este pedido fue enviado directamente a la cuenta del Jefe Álvaro. (Pedido: ${newOrderId})`,
+          createdAt: new Date().toISOString()
+        };
+        await dbService.saveShiftTransfer(autoTransfer);
+        setShiftTransfers(prev => [autoTransfer, ...prev]);
+      }
       
       // Clear Cart
       setCart([]);
@@ -721,6 +791,23 @@ export default function App() {
             createdAt: new Date().toISOString()
           };
           setSales(prev => [newSale, ...prev]);
+        }
+      }
+
+      // If cancelled by staff, log the cancellation
+      if (nextStatus === 'cancelado') {
+        const found = orders.find(o => o.id === orderId);
+        if (found) {
+          const cancelLog: CancelledOrder = {
+            id: 'cancel-' + orderId,
+            pedidoId: orderId,
+            userId: found.userId,
+            userEmail: found.userEmail,
+            reason: 'Cancelado desde el panel de atención por el personal.',
+            cancelledAt: new Date().toISOString()
+          };
+          await dbService.recordCancelledOrder(cancelLog);
+          setCancelledOrders(prev => [cancelLog, ...prev]);
         }
       }
     } catch (err) {
@@ -1116,10 +1203,10 @@ export default function App() {
 
             </motion.div>
           </div>
-        ) : currentUser.role === 'admin' ? (
+        ) : (currentUser.role === 'admin' || currentUser.role === 'empleado') ? (
           
           /* =========================================================================
-             ADMINISTRATOR PORTAL
+             ADMINISTRATOR & EMPLOYEE PORTAL
              ========================================================================= */
           <div className="flex flex-col gap-6">
             
@@ -1130,20 +1217,35 @@ export default function App() {
                   <Shield className="w-6 h-6" />
                 </div>
                 <div>
-                  <h2 className="font-extrabold font-display text-lg text-white">Panel de Administración de Taquería Villa</h2>
-                  <p className="text-xs text-zinc-400">Ver estadísticas de ventas, despachar comandas, actualizar precios y el menú.</p>
+                  <h2 className="font-extrabold font-display text-base sm:text-lg text-white">
+                    {currentUser.role === 'admin' ? 'Panel de Administración de Taquería Villa' : 'Comandero de Operaciones y Servicios (Empleado)'}
+                  </h2>
+                  <p className="text-xs text-zinc-400">
+                    {currentUser.role === 'admin' 
+                      ? 'Ver estadísticas de ventas, despachar comandas, actualizar precios y el menú.' 
+                      : 'Monitorear comandas en cocina, atender solicitudes de los clientes y registrar cortes.'}
+                  </p>
                 </div>
               </div>
               
               {/* Tabs list */}
               <div className="flex gap-1.5 overflow-x-auto pb-1 md:pb-0 font-display">
-                {[
-                  { id: 'dashboard', label: 'Dashboard / Stats', icon: TrendingUp },
-                  { id: 'pedidos', label: 'Comandas / Pedidos', icon: Package },
-                  { id: 'menu_manager', label: 'Administrar Menú', icon: Edit3 },
-                  { id: 'clientes', label: 'Directorio de Clientes', icon: Users },
-                  { id: 'cancelados_log', label: 'Historial Cancelados', icon: AlertTriangle }
-                ].map(tab => {
+                {(currentUser.role === 'admin'
+                  ? [
+                      { id: 'dashboard', label: 'Dashboard / Stats', icon: TrendingUp },
+                      { id: 'pedidos', label: 'Comandas / Pedidos', icon: Package },
+                      { id: 'menu_manager', label: 'Administrar Menú', icon: Edit3 },
+                      { id: 'clientes', label: 'Directorio de Clientes', icon: Users },
+                      { id: 'cancelados_log', label: 'Historial Cancelados', icon: AlertTriangle },
+                      { id: 'caja_quejas', label: 'Buzón de Quejas', icon: MessageSquare },
+                      { id: 'shift_earnings', label: 'Cierre y Auditoría', icon: DollarSign }
+                    ]
+                  : [
+                      { id: 'pedidos', label: 'Comandas / Pedidos', icon: Package },
+                      { id: 'caja_quejas', label: 'Buzón de Quejas (Caja)', icon: MessageSquare },
+                      { id: 'shift_earnings', label: 'Enviar Ganancias al Jefe', icon: DollarSign }
+                    ]
+                ).map(tab => {
                   const Icon = tab.icon;
                   const isActive = activeTab === tab.id;
                   return (
@@ -1436,32 +1538,44 @@ export default function App() {
                                   )}
                                 </div>
 
-                                {/* Address and buyer info */}
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 mt-1 text-xs">
-                                  <div className="flex gap-1.5 items-center">
-                                    <User className="w-4 h-4 text-zinc-400 text-zinc-500" />
-                                    <span className="truncate"><span className="font-semibold text-zinc-400">Comensal:</span> {order.userName} ({order.userEmail})</span>
-                                  </div>
-                                  <div className="flex gap-1.5 items-center">
-                                    <MapPin className="w-4 h-4 text-red-500" />
-                                    <span className="truncate"><span className="font-semibold text-zinc-400">Dir:</span> {order.deliveryAddress}</span>
-                                  </div>
-                                  <div className="flex gap-1.5 items-center">
-                                    <Phone className="w-4 h-4 text-emerald-500" />
-                                    <span><span className="font-semibold text-zinc-400">Tel:</span> {order.deliveryPhone}</span>
-                                  </div>
-                                </div>
+                                 {/* Address and buyer info */}
+                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 mt-1 text-xs">
+                                   <div className="flex gap-1.5 items-center">
+                                     <User className="w-4 h-4 text-zinc-400" />
+                                     <span className="truncate">
+                                       <span className="font-semibold text-zinc-400">Comensal:</span> {order.userName} ({order.userEmail})
+                                       {(order.userEmail === 'carlos.mendoza@gmail.com' || order.userEmail === 'sofia.gomez@gmail.com') && (
+                                         <span className="inline-block bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[8px] font-extrabold px-1.5 py-0.5 rounded ml-2 uppercase animate-pulse">
+                                           ✓ Directo a Álvaro Jefe
+                                         </span>
+                                       )}
+                                     </span>
+                                   </div>
+                                   <div className="flex gap-1.5 items-center">
+                                     <MapPin className="w-4 h-4 text-red-500" />
+                                     <span className="truncate"><span className="font-semibold text-zinc-400">Dir:</span> {order.deliveryAddress}</span>
+                                   </div>
+                                   <div className="flex gap-1.5 items-center">
+                                     <Phone className="w-4 h-4 text-emerald-500" />
+                                     <span><span className="font-semibold text-zinc-400">Tel:</span> {order.deliveryPhone}</span>
+                                   </div>
+                                 </div>
 
-                              </div>
+                               </div>
 
-                              {/* ACTIONS ZONE FOR ADMIN */}
-                              <div className="lg:w-72 flex flex-col justify-between items-end border-t lg:border-t-0 lg:border-l border-zinc-800 pt-4 lg:pt-0 lg:pl-5 gap-3">
-                                <div>
-                                  <span className="text-[10px] uppercase text-zinc-500 tracking-wider">Monto a cobrar</span>
-                                  <p className="text-2xl font-extrabold font-display text-emerald-400 text-right leading-none mt-1">
-                                    ${order.total.toFixed(2)} <span className="text-xs font-normal text-zinc-400">MXN</span>
-                                  </p>
-                                </div>
+                               {/* ACTIONS ZONE FOR ADMIN */}
+                               <div className="lg:w-72 flex flex-col justify-between items-end border-t lg:border-t-0 lg:border-l border-zinc-800 pt-4 lg:pt-0 lg:pl-5 gap-3">
+                                 <div>
+                                   <span className="text-[10px] uppercase text-zinc-500 tracking-wider">Monto a cobrar</span>
+                                   <p className="text-2xl font-extrabold font-display text-emerald-400 text-right leading-none mt-1">
+                                     ${order.total.toFixed(2)} <span className="text-xs font-normal text-zinc-400">MXN</span>
+                                   </p>
+                                   {(order.userEmail === 'carlos.mendoza@gmail.com' || order.userEmail === 'sofia.gomez@gmail.com') && (
+                                     <p className="text-[9px] text-emerald-400 text-right font-bold mt-1.5 font-sans whitespace-nowrap">
+                                       💸 Dinero transferido al Jefe Álvaro ✓
+                                     </p>
+                                   )}
+                                 </div>
 
                                 {isTerminal ? (
                                   <div className="text-right w-full text-xs text-zinc-500">
@@ -1766,6 +1880,396 @@ export default function App() {
                   </div>
                 )}
 
+                {/* 6. COMPLAINTS BOX PANEL (ADMIN & ENCARGADOS/EMPLEADOS) */}
+                {activeTab === 'caja_quejas' && (
+                  <div className="flex flex-col gap-6">
+                    <div className="bg-zinc-950 p-6 rounded-2xl border border-zinc-800 shadow-xl flex flex-col gap-1.5">
+                      <div className="flex items-center gap-2">
+                        <MessageSquare className="text-red-500 w-5 h-5 animate-pulse" />
+                        <h3 className="font-extrabold font-display text-base text-white font-sans">Buzón de Quejas y Sugerencias</h3>
+                      </div>
+                      <p className="text-xs text-zinc-400 font-sans">Atención oficial del restaurante. Revisa, responde y dale seguimiento a los reportes ingresados por los clientes.</p>
+                    </div>
+
+                    {complaints.length === 0 ? (
+                      <div className="bg-zinc-950 p-12 text-center rounded-2xl border border-zinc-800 flex flex-col items-center gap-3">
+                        <MessageSquare className="w-10 h-10 text-zinc-700" />
+                        <p className="text-sm font-bold text-zinc-300 font-sans">El buzón de quejas está vacío</p>
+                        <p className="text-xs text-zinc-500 font-medium font-sans">¡Felicidades! Ningún cliente ha dejado sugerencias negativas o quejas.</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                        {/* Complaints List Selection Slider */}
+                        <div className="lg:col-span-6 flex flex-col gap-4">
+                          <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold font-sans">Listado de Comentarios y Reportes ({complaints.length})</span>
+                          <div className="flex flex-col gap-3 max-h-[600px] overflow-y-auto pr-1">
+                            {complaints.map((comp) => {
+                              const isSelected = selectedComplaintId === comp.id;
+                              return (
+                                <button
+                                  type="button"
+                                  key={comp.id}
+                                  onClick={() => {
+                                    setSelectedComplaintId(comp.id);
+                                    setComplaintResponseText(comp.response || '');
+                                  }}
+                                  className={`w-full p-4 rounded-xl text-left border flex flex-col gap-2.5 transition-all ${
+                                    isSelected 
+                                      ? 'bg-zinc-900 border-red-500 shadow-lg ring-1 ring-red-500/20 text-white' 
+                                      : 'bg-zinc-950 border-zinc-800 hover:bg-zinc-900/40 text-zinc-300'
+                                  }`}
+                                >
+                                  <div className="flex justify-between items-start gap-3 w-full">
+                                    <div className="flex flex-col gap-0.5">
+                                      <span className="text-xs font-bold text-zinc-100 font-sans">{comp.userName}</span>
+                                      <span className="text-[10px] text-zinc-400 font-mono">{comp.userEmail}</span>
+                                    </div>
+                                    <span className={`text-[9px] font-extrabold uppercase px-2 py-0.5 rounded border font-mono ${
+                                      comp.status === 'resuelta' 
+                                        ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' 
+                                        : comp.status === 'revisada' 
+                                          ? 'bg-sky-500/10 border-sky-500/20 text-sky-500' 
+                                          : 'bg-yellow-500/10 border-yellow-500/20 text-yellow-500'
+                                    }`}>
+                                      {comp.status === 'pendiente' ? 'Pendiente' : comp.status === 'revisada' ? 'Atendida' : 'Resuelta'}
+                                    </span>
+                                  </div>
+                                  
+                                  <div className="text-[11px] font-mono text-zinc-500 flex justify-between items-center bg-zinc-950 px-2 py-1 rounded">
+                                    <span>Asunto: {comp.subject}</span>
+                                    <span>{new Date(comp.createdAt).toLocaleDateString()}</span>
+                                  </div>
+
+                                  <p className="text-xs text-zinc-300 italic line-clamp-2 mt-1">
+                                    “{comp.message}”
+                                  </p>
+
+                                  {comp.response && (
+                                    <div className="mt-2 bg-zinc-950/80 p-2.5 rounded border border-zinc-900 flex items-start gap-2">
+                                      <span className="text-[9px] font-extrabold text-emerald-500 bg-emerald-500/10 p-0.5 rounded shrink-0 font-mono font-sans">RE:</span>
+                                      <span className="text-[10px] text-zinc-400 italic line-clamp-2 font-sans">“{comp.response}” ({comp.respondedBy})</span>
+                                    </div>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Complaint Details and Interactive Reply box */}
+                        <div className="lg:col-span-6 sticky top-24">
+                          {selectedComplaintId ? (() => {
+                            const compObj = complaints.find(c => c.id === selectedComplaintId);
+                            if (!compObj) return <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800 text-xs text-zinc-500 font-sans">Selecciona un reporte.</div>;
+                            return (
+                              <div className="bg-zinc-950 p-6 rounded-2xl border border-zinc-800 shadow-xl flex flex-col gap-6">
+                                <div className="border-b border-zinc-900 pb-4 flex justify-between items-center">
+                                  <div>
+                                    <span className="text-[10px] text-zinc-500 font-bold uppercase font-mono tracking-wider">Detalles de Reporte</span>
+                                    <h4 className="font-bold text-sm text-white mt-1 font-sans font-display">Comensal: {compObj.userName}</h4>
+                                  </div>
+                                  <span className="text-[11px] text-zinc-500 font-mono bg-zinc-900 px-2.5 py-1 rounded">{new Date(compObj.createdAt).toLocaleString()}</span>
+                                </div>
+
+                                <div className="flex flex-col gap-3">
+                                  <div className="grid grid-cols-2 gap-4 text-xs font-mono">
+                                    <div>
+                                      <span className="text-zinc-400 block font-sans">Correo del usuario:</span>
+                                      <span className="font-semibold text-zinc-300">{compObj.userEmail}</span>
+                                    </div>
+                                    <div>
+                                      <span className="text-zinc-400 block font-sans">Asunto / Tipo:</span>
+                                      <span className="font-semibold text-red-450 bg-red-650/15 px-2 py-0.5 rounded font-sans">{compObj.subject}</span>
+                                    </div>
+                                  </div>
+
+                                  <div className="bg-zinc-900 border border-zinc-850 p-4 rounded-xl mt-2 italic leading-relaxed text-xs font-bold text-zinc-350">
+                                    “{compObj.message}”
+                                  </div>
+                                </div>
+
+                                <form onSubmit={async (e) => {
+                                  e.preventDefault();
+                                  if (!currentUser) return;
+                                  
+                                  const responseText = complaintResponseText;
+                                  if (!responseText.trim()) {
+                                    alert("Por favor ingresa un comentario o respuesta.");
+                                    return;
+                                  }
+
+                                  try {
+                                    await dbService.updateComplaintStatus(compObj.id, 'revisada', responseText, currentUser.displayName);
+                                    setComplaints(prev => prev.map(c => c.id === compObj.id ? { 
+                                      ...c, 
+                                      status: 'revisada', 
+                                      response: responseText, 
+                                      respondedBy: currentUser.displayName, 
+                                      updatedAt: new Date().toISOString() 
+                                    } : c));
+                                    alert("La queja ha sido actualizada a Atendida con éxito.");
+                                  } catch (err) {
+                                    console.error(err);
+                                    alert("Ocurrió un error.");
+                                  }
+                                }} className="flex flex-col gap-4 border-t border-zinc-900 pt-4">
+                                  <div className="flex flex-col gap-1.5">
+                                    <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider font-sans">Responder Oficialmente al Comensal:</label>
+                                    <textarea
+                                      required
+                                      value={complaintResponseText}
+                                      onChange={(e) => setComplaintResponseText(e.target.value)}
+                                      placeholder="Explica qué acción Correctiva se tomará o responde al comensal..."
+                                      className="bg-zinc-900 border border-zinc-800 rounded-xl p-3.5 text-xs h-28 resize-none text-white focus:outline-none focus:ring-1 focus:ring-red-655 leading-relaxed font-sans"
+                                    />
+                                  </div>
+
+                                  <div className="flex gap-2">
+                                    <button
+                                      type="submit"
+                                      className="flex-1 bg-zinc-900 text-sky-400 border border-sky-500/20 hover:bg-zinc-800 font-bold py-2.5 rounded-xl text-xs transition-colors font-sans"
+                                    >
+                                      Atender / Responder
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        try {
+                                          await dbService.updateComplaintStatus(compObj.id, 'resuelta', complaintResponseText, currentUser.displayName);
+                                          setComplaints(prev => prev.map(c => c.id === compObj.id ? { 
+                                            ...c, 
+                                            status: 'resuelta', 
+                                            response: complaintResponseText || undefined, 
+                                            respondedBy: currentUser.displayName, 
+                                            updatedAt: new Date().toISOString() 
+                                          } : c));
+                                          alert("Queja resuelta exitosamente.");
+                                        } catch (err) {
+                                          console.error(err);
+                                        }
+                                      }}
+                                      className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs transition-colors font-sans"
+                                    >
+                                      ✓ Marcar como Resuelta
+                                    </button>
+                                  </div>
+                                </form>
+                              </div>
+                            );
+                          })() : (
+                            <div className="bg-zinc-950 p-12 rounded-2xl border border-zinc-800 text-center text-zinc-500 text-xs flex flex-col items-center gap-2">
+                              <MessageSquare className="w-8 h-8 stroke-[1.5] text-zinc-700 mb-1 animate-pulse" />
+                              <p className="font-semibold text-zinc-400 font-sans">Ningún reporte seleccionado</p>
+                              <p className="max-w-[200px] leading-relaxed mx-auto text-zinc-500 text-[11px] font-sans">Haz clic en cualquiera de las quejas registradas a la izquierda para inspeccionarla, redactar una aclaración o marcarla como Resuelta definitivamente.</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 7. EARNINGS TRANSFER PROTOCOL (EMPLEADO CAN DEPOSIT TO BOSS, ADMIN AUDITS LOGS) */}
+                {activeTab === 'shift_earnings' && (
+                  <div className="flex flex-col gap-6">
+                    {currentUser.role === 'empleado' ? (
+                      /* EMPLOYEE TRANSFER PANEL */
+                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                        {/* Form area: Left 6 columns */}
+                        <div className="lg:col-span-6 flex flex-col gap-6">
+                          <div className="bg-zinc-950 p-6 rounded-2xl border border-zinc-800 shadow-xl flex flex-col gap-4">
+                            <div>
+                              <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest font-mono">Cierre de Caja del Turno</span>
+                              <h3 className="font-extrabold font-display text-base text-white mt-1 font-sans">Enviar Ganancias al Jefe Álvaro</h3>
+                              <p className="text-xs text-zinc-400 mt-1 font-sans">Saca las ganancias de caja acumuladas por las comandas ya entregadas para resguardarlas de manera segura en la cuenta del jefe.</p>
+                            </div>
+
+                            {/* Aggregation card metrics */}
+                            <div className="grid grid-cols-2 gap-3.5 bg-zinc-900 border border-zinc-850 p-4.5 rounded-xl text-left">
+                              <div>
+                                <span className="text-[10px] text-zinc-550 uppercase tracking-wider block font-bold font-mono">Pedidos Entregados Hoy:</span>
+                                <span className="text-lg font-extrabold text-white font-display">
+                                  {orders.filter(o => o.status === 'entregado').length} comandas
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-zinc-550 uppercase tracking-wider block font-bold font-mono">Efectivo Total Acumulado:</span>
+                                <span className="text-lg font-extrabold text-emerald-400 font-display">
+                                  ${orders.filter(o => o.status === 'entregado').reduce((sum, o) => sum + o.total, 0).toFixed(2)} MXN
+                                </span>
+                              </div>
+                            </div>
+
+                            <form onSubmit={async (e) => {
+                              e.preventDefault();
+                              const amtStr = transferAmountText;
+                              const amt = parseFloat(amtStr);
+                              if (isNaN(amt) || amt <= 0) {
+                                alert("Por favor ingresa un monto decimal válido para transferir.");
+                                return;
+                              }
+
+                              const newTransfer: ShiftTransfer = {
+                                id: 'trans-' + Date.now(),
+                                employeeId: currentUser.uid,
+                                employeeName: currentUser.displayName,
+                                employeeEmail: currentUser.email,
+                                amount: amt,
+                                comments: transferCommentsText || 'Transferencia de utilidades del turno regular - Sin incidencias reportadas.',
+                                createdAt: new Date().toISOString()
+                              };
+
+                              try {
+                                await dbService.saveShiftTransfer(newTransfer);
+                                setShiftTransfers(prev => [newTransfer, ...prev]);
+                                setTransferAmountText('');
+                                setTransferCommentsText('');
+                                alert(`✓ Se han enviado $${amt.toFixed(2)} MXN a la cuenta del Jefe Álvaro exitosamente.`);
+                              } catch (err) {
+                                console.error(err);
+                                alert("Error al registrar transferencia.");
+                              }
+                            }} className="flex flex-col gap-4">
+                              <div className="flex flex-col gap-1.5 font-mono">
+                                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider font-sans">Monto de Ganancia a Mandar ($ MXN):</label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  required
+                                  value={transferAmountText}
+                                  onChange={(e) => setTransferAmountText(e.target.value)}
+                                  placeholder="Ej: 1450.50"
+                                  className="bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono font-bold"
+                                />
+                                <span className="text-[10px] text-zinc-500 font-sans">Indica el total recortado que depositarás formalmente.</span>
+                              </div>
+
+                              <div className="flex flex-col gap-1.5">
+                                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider font-sans">Comentarios o Bitácora (Opcional):</label>
+                                <textarea
+                                  value={transferCommentsText}
+                                  onChange={(e) => setTransferCommentsText(e.target.value)}
+                                  placeholder="Comentarios adicionales sobre el corte de caja, mermas o incidencias..."
+                                  className="bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-xs h-20 resize-none text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 leading-relaxed font-sans"
+                                />
+                              </div>
+
+                              <button
+                                type="submit"
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl text-xs transition-colors font-sans shadow-lg shadow-emerald-950/20 active:scale-[0.98] flex items-center justify-center gap-1.5"
+                              >
+                                <span>Mandar Utilidades al Jefe Álvaro Admin</span>
+                              </button>
+                            </form>
+                          </div>
+                        </div>
+
+                        {/* Logs area: Right 6 columns */}
+                        <div className="lg:col-span-6 flex flex-col gap-4">
+                          <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold font-sans">Bitácora de Mis Envíos de Turno</span>
+                          
+                          {shiftTransfers.filter(t => t.employeeId === currentUser.uid).length === 0 ? (
+                            <p className="text-xs text-zinc-500 italic py-2 font-sans">No has registrado depósitos en este periodo de caja de turno.</p>
+                          ) : (
+                            <div className="flex flex-col gap-3 max-h-[460px] overflow-y-auto pr-1">
+                              {shiftTransfers
+                                .filter(t => t.employeeId === currentUser.uid)
+                                .map((t) => (
+                                  <div 
+                                    key={t.id}
+                                    className="bg-zinc-950 border border-zinc-850 p-4 rounded-xl flex flex-col gap-2 relative shadow-md font-mono text-zinc-300"
+                                  >
+                                    <div className="flex justify-between items-center text-xs font-bold">
+                                      <span className="text-[10px] text-zinc-500">{new Date(t.createdAt).toLocaleString()}</span>
+                                      <span className="text-emerald-400 font-display font-extrabold">+ ${t.amount.toFixed(2)} MXN</span>
+                                    </div>
+                                    <p className="text-xs text-zinc-300 italic mt-1 font-sans">
+                                      “{t.comments}”
+                                    </p>
+                                    <span className="absolute bottom-2 right-3 text-[8px] bg-zinc-900 text-zinc-500 border border-zinc-850 p-1 rounded font-normal uppercase">
+                                      ENTREGADO ✓
+                                    </span>
+                                  </div>
+                                ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      /* ADMINISTRATOR AUDIT AND STATS VIEW (BOSS VIEWING COMMITTED TRANSFERS) */
+                      <div className="flex flex-col gap-6">
+                        {/* Stats card */}
+                        <div className="bg-zinc-950 p-6 rounded-2xl border border-zinc-800 shadow-xl grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[10px] text-zinc-500 uppercase font-mono tracking-wider font-bold">Cuentas Claras</span>
+                            <h3 className="text-sm font-bold text-white font-sans font-display">Utilidades Depositadas por Empleados</h3>
+                            <p className="text-xs text-zinc-400 leading-relaxed font-sans">Arqueos de caja y depósitos efectuados por el personal de atención.</p>
+                          </div>
+
+                          <div className="p-4 bg-zinc-900 border border-zinc-850 rounded-xl flex flex-col gap-1.5 text-left font-mono">
+                            <span className="text-zinc-500 text-[10px] uppercase font-bold">Total Recibido (Cortes):</span>
+                            <div className="flex items-baseline gap-1.5 mt-1">
+                              <span className="text-2xl sm:text-3xl font-extrabold text-emerald-400 font-display">
+                                ${shiftTransfers.reduce((sum, t) => sum + t.amount, 0).toFixed(2)}
+                              </span>
+                              <span className="text-xs text-zinc-500">MXN</span>
+                            </div>
+                          </div>
+
+                          <div className="p-4 bg-zinc-900 border border-zinc-850 rounded-xl flex flex-col gap-1.5 text-left font-mono">
+                            <span className="text-zinc-500 text-[10px] uppercase font-bold">Depósitos Registrados:</span>
+                            <div className="flex items-baseline gap-1 mt-1">
+                              <span className="text-2xl sm:text-3xl font-extrabold text-sky-400 font-display">
+                                {shiftTransfers.length}
+                              </span>
+                              <span className="text-xs text-zinc-500 font-sans">traspasos</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Detailed receipt spreadsheet list */}
+                        <div className="bg-zinc-950 p-6 rounded-2xl border border-zinc-800 shadow-xl flex flex-col gap-4">
+                          <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold font-sans">Bitácora General de Arqueos de Caja Recibidos</span>
+                          
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left text-xs font-mono">
+                              <thead className="bg-zinc-900 text-zinc-400 uppercase border-b border-zinc-800">
+                                <tr>
+                                  <th className="px-4 py-3">ID Transferencia</th>
+                                  <th className="px-4 py-3">Empleado Remitente</th>
+                                  <th className="px-4 py-3">Correo</th>
+                                  <th className="px-4 py-3">Comentarios / Incidencias de Caja</th>
+                                  <th className="px-4 py-3">Fecha de Recepción</th>
+                                  <th className="px-4 py-3 text-right">Monto Recibido</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-zinc-800 text-zinc-300">
+                                {shiftTransfers.length === 0 ? (
+                                  <tr>
+                                    <td colSpan={6} className="text-center py-6 text-zinc-500">No se registran envíos de caja de empleados aún.</td>
+                                  </tr>
+                                ) : (
+                                  shiftTransfers.map((t) => (
+                                    <tr key={t.id} className="hover:bg-zinc-900/40">
+                                      <td className="px-4 py-3 text-zinc-500 text-[11px]">{t.id}</td>
+                                      <td className="px-4 py-3 font-semibold text-white font-sans text-xs">{t.employeeName}</td>
+                                      <td className="px-4 py-3 text-zinc-500 text-[11px]">{t.employeeEmail}</td>
+                                      <td className="px-4 py-3 text-yellow-500 italic text-[11px] font-sans">“{t.comments}”</td>
+                                      <td className="px-4 py-3 text-zinc-400">{new Date(t.createdAt).toLocaleString()}</td>
+                                      <td className="px-4 py-3 text-right font-extrabold text-emerald-400 font-display text-sm">${t.amount.toFixed(2)}</td>
+                                    </tr>
+                                  ))
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
               </div>
             )}
 
@@ -1786,7 +2290,8 @@ export default function App() {
                 {[
                   { id: 'menu', label: 'Ver Menú de Comidas', icon: Utensils },
                   { id: 'historial', label: 'Mis Pedidos Activos', icon: Clock },
-                  { id: 'perfil', label: 'Mi Perfil Villa', icon: User }
+                  { id: 'perfil', label: 'Mi Perfil Villa', icon: User },
+                  { id: 'buzon_quejas', label: 'Buzón de Quejas', icon: MessageSquare }
                 ].map(view => {
                   const Icon = view.icon;
                   const isActive = activeTab === view.id;
@@ -2203,24 +2708,31 @@ export default function App() {
                               )}
                             </div>
 
-                            <div className="flex flex-col sm:flex-row justify-between items-end sm:items-center gap-3 border-t border-zinc-850 pt-3">
+                            <div className="flex flex-col lg:flex-row justify-between items-end lg:items-center gap-3 border-t border-zinc-850 pt-3">
                               <div className="text-xs">
                                 <p className="text-zinc-450"><span className="font-semibold">Dirección de Entrega:</span> {order.deliveryAddress}</p>
                                 <p className="text-zinc-500 mt-0.5"><span className="font-semibold">Teléfono de Entrega:</span> {order.deliveryPhone}</p>
                               </div>
-                              <div className="flex items-center gap-4">
-                                <p className="font-mono text-lg font-bold text-emerald-400">Total: ${order.total.toFixed(2)} MXN</p>
-                                
-                                {canCancel && (
-                                  <button
-                                    onClick={() => {
-                                      setCancelOrderReasonId(order.id);
-                                      setCancelReasonText('');
-                                    }}
-                                    className="bg-zinc-905 border border-red-500/30 hover:border-red-500/60 hover:bg-red-500/10 text-red-400 font-bold text-xs px-3.5 py-1.5 rounded-lg transition-all"
-                                  >
-                                    Cancelar Pedido
-                                  </button>
+                              <div className="flex flex-col sm:flex-row items-end sm:items-center gap-3">
+                                <div className="flex items-center gap-2">
+                                  <p className="font-mono text-lg font-bold text-emerald-400">Total: ${order.total.toFixed(2)} MXN</p>
+                                  
+                                  {canCancel && (
+                                    <button
+                                      onClick={() => {
+                                        setCancelOrderReasonId(order.id);
+                                        setCancelReasonText('');
+                                      }}
+                                      className="bg-zinc-905 border border-red-500/30 hover:border-red-500/60 hover:bg-red-500/10 text-red-400 font-bold text-xs px-3.5 py-1.5 rounded-lg transition-all"
+                                    >
+                                      Cancelar Pedido
+                                    </button>
+                                  )}
+                                </div>
+                                {(order.userEmail === 'carlos.mendoza@gmail.com' || order.userEmail === 'sofia.gomez@gmail.com') && (
+                                  <span className="text-[10px] uppercase font-mono font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/25 px-2 py-1 rounded">
+                                    ✓ Depositado a Álvaro Jefe
+                                  </span>
                                 )}
                               </div>
                             </div>
@@ -2363,6 +2875,157 @@ export default function App() {
                       {profileSaving ? 'Guardando en la Carta...' : 'Actualizar Perfil de Comensal'}
                     </button>
                   </form>
+                </div>
+              )}
+
+              {/* 4. CUSTOMER COMPLAINTS BOX TAB VIEW */}
+              {activeTab === 'buzon_quejas' && (
+                <div className={`p-6 rounded-2xl border shadow-xl flex flex-col gap-6 ${
+                  darkMode ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-white border-gray-200 text-zinc-900'
+                }`}>
+                  <div className="flex flex-col gap-1.5">
+                    <h3 className={`font-extrabold font-display text-base ${darkMode ? 'text-zinc-100' : 'text-gray-900'}`}>Buzón de Sugerencias y Quejas</h3>
+                    <p className={`text-xs ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>Tu opinión es vital para nosotros. Mándanos cualquier reporte técnico o queja para resolverla de inmediato.</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+                    {/* Create Complaint Box form */}
+                    <form onSubmit={async (e) => {
+                      e.preventDefault();
+                      if (!currentUser) {
+                        alert("Por favor inicia sesión con Google primero.");
+                        return;
+                      }
+
+                      if (!newComplaintMessage.trim()) {
+                        alert("Por favor redacta un mensaje descriptivo para ayudarnos.");
+                        return;
+                      }
+
+                      setSubmittingComplaint(true);
+                      
+                      const compObj: Complaint = {
+                        id: 'comp-' + Date.now(),
+                        userId: currentUser.uid,
+                        userName: currentUser.displayName,
+                        userEmail: currentUser.email,
+                        subject: newComplaintSubject,
+                        message: newComplaintMessage,
+                        status: 'pendiente',
+                        createdAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString()
+                      };
+
+                      try {
+                        await dbService.saveComplaint(compObj);
+                        setComplaints(prev => [compObj, ...prev]);
+                        setNewComplaintMessage('');
+                        alert("✓ ¡Sugerencia enviada! El personal de Villa y el administrador Álvaro revisarán de inmediato.");
+                      } catch (err) {
+                        console.error(err);
+                        alert("Hubo un error al registrar reporte.");
+                      } finally {
+                        setSubmittingComplaint(false);
+                      }
+                    }} className="flex flex-col gap-4">
+                      
+                      <div className="flex flex-col gap-1.5">
+                        <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-zinc-450' : 'text-gray-500'}`}>Clasificación del Reporte:</label>
+                        <select
+                          value={newComplaintSubject}
+                          onChange={(e) => setNewComplaintSubject(e.target.value)}
+                          className={`border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-red-500 ${
+                            darkMode ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-gray-50 border-gray-300 text-gray-850 font-medium'
+                          }`}
+                        >
+                          <option value="Calidad de Tacos">Calidad u olor de alimentos</option>
+                          <option value="Demora en el Reparto">Demora de entrega o repartidor</option>
+                          <option value="Atención Telefónica">Atención al cliente / llamadas</option>
+                          <option value="Problemas con la App">Fallas técnicas en comandos en vivo</option>
+                          <option value="Sugerencia de Menú">Sugerencias y aditivos al menú</option>
+                          <option value="Otro motivo">Otro asunto general</option>
+                        </select>
+                      </div>
+
+                      <div className="flex flex-col gap-1.5">
+                        <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-zinc-455' : 'text-gray-500'}`}>Describe detalladamente la incidencia:</label>
+                        <textarea
+                          required
+                          value={newComplaintMessage}
+                          onChange={(e) => setNewComplaintMessage(e.target.value)}
+                          placeholder="Por favor indícanos qué sucedió, incluyendo número de pedido si aplica..."
+                          className={`border rounded-xl p-3.5 text-xs h-28 resize-none font-medium leading-relaxed focus:outline-none focus:ring-1 focus:ring-red-655 ${
+                            darkMode ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-gray-50 border-gray-300 text-gray-825'
+                          }`}
+                        />
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={submittingComplaint}
+                        className="bg-red-650 hover:bg-red-700 text-white font-bold py-2.5 rounded-xl text-xs transition-colors self-start px-6 shadow-md"
+                      >
+                        {submittingComplaint ? 'Enviando...' : 'Mandar Reporte Oficial'}
+                      </button>
+                    </form>
+
+                    {/* Complaint history logs */}
+                    <div className="flex flex-col gap-4">
+                      <span className={`text-xs font-bold uppercase ${darkMode ? 'text-zinc-500' : 'text-gray-450'}`}>Mis Reportes Previos</span>
+                      
+                      {complaints.filter(c => c.userId === currentUser.uid).length === 0 ? (
+                        <div className="text-center py-8 flex flex-col items-center gap-2">
+                          <MessageSquare className="w-8 h-8 text-zinc-450 shrink-0 animate-bounce" />
+                          <p className="text-xs text-zinc-500">Aún no has levantado quejas o reportes de servicio.</p>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-3 max-h-[360px] overflow-y-auto pr-1">
+                          {complaints
+                            .filter(c => c.userId === currentUser.uid)
+                            .map((c) => (
+                              <div
+                                key={c.id}
+                                className={`p-4 rounded-xl border flex flex-col gap-2 relative ${
+                                  darkMode ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-gray-50 border-gray-250 text-zinc-900'
+                                }`}
+                              >
+                                <div className="flex justify-between items-center text-xs">
+                                  <span className="font-bold text-red-600 dark:text-yellow-455 font-sans">{c.subject}</span>
+                                  <span className="text-[9px] uppercase font-bold text-zinc-400 font-mono">{new Date(c.createdAt).toLocaleDateString()}</span>
+                                </div>
+                                <p className={`text-xs italic leading-relaxed ${darkMode ? 'text-zinc-300' : 'text-gray-700'}`}>
+                                  “{c.message}”
+                                </p>
+
+                                <div className="flex items-center gap-1.5 mt-1">
+                                  <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                                    c.status === 'resuelta' 
+                                      ? 'bg-emerald-500/10 text-emerald-500' 
+                                      : c.status === 'revisada' 
+                                        ? 'bg-sky-500/10 text-sky-500' 
+                                        : 'bg-yellow-500/10 text-yellow-600'
+                                  }`}>
+                                    {c.status === 'pendiente' ? 'Pendiente' : c.status === 'revisada' ? 'Atendida' : 'Resuelta ✓'}
+                                  </span>
+                                </div>
+
+                                {c.response && (
+                                  <div className={`mt-2 p-2.5 rounded border flex flex-col gap-1 ${
+                                    darkMode ? 'bg-zinc-950 border-zinc-850' : 'bg-white border-gray-200'
+                                  }`}>
+                                    <span className="text-[9px] font-bold text-emerald-500 uppercase">Respuesta del Personal:</span>
+                                    <p className={`text-xs italic ${darkMode ? 'text-zinc-400' : 'text-zinc-650'}`}>
+                                      “{c.response}”
+                                    </p>
+                                    <span className="text-[8px] text-zinc-500 self-end font-mono">Atendido por: {c.respondedBy || 'Villa'}</span>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -2669,6 +3332,27 @@ export default function App() {
                     <CheckCircle2 className="w-4 h-4 text-zinc-300 dark:text-zinc-700" />
                   </button>
 
+                  {/* Option 3.5: Eduardo Empleado */}
+                  <button
+                    type="button"
+                    onClick={() => handleExecuteMockLogin('eduardo.empleado@gmail.com', 'Eduardo Empleado', 'empleado')}
+                    className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-850 hover:border-emerald-500 hover:bg-zinc-100 dark:hover:bg-zinc-900/80 transition-all text-left"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-full bg-emerald-600/10 border border-emerald-500/20 text-emerald-600 flex items-center justify-center font-bold text-sm">
+                        E
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
+                          <span>Eduardo Empleado</span>
+                          <span className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-[8px] font-extrabold px-1.5 py-0.5 rounded uppercase">Empleado</span>
+                        </div>
+                        <div className="text-[10px] text-zinc-500 dark:text-zinc-400">eduardo.empleado@gmail.com</div>
+                      </div>
+                    </div>
+                    <CheckCircle2 className="w-4 h-4 text-zinc-300 dark:text-zinc-700" />
+                  </button>
+
                   {/* Option 4: Custom */}
                   <button
                     type="button"
@@ -2707,28 +3391,39 @@ export default function App() {
 
                   <div className="flex flex-col gap-1">
                     <label className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider">Rol de Acceso:</label>
-                    <div className="grid grid-cols-2 gap-2 mt-1">
+                    <div className="grid grid-cols-3 gap-1.5 mt-1">
                       <button
                         type="button"
                         onClick={() => setCustomMockRole('usuario')}
-                        className={`py-2 px-3 rounded-xl border text-xs font-semibold transition-all ${
+                        className={`py-2 px-1 text-center rounded-xl border text-[11px] font-semibold transition-all ${
                           customMockRole === 'usuario'
-                            ? 'bg-red-50 border-red-500 text-red-600 dark:bg-red-950/20 dark:text-red-400'
+                            ? 'bg-red-50 border-red-500 text-red-650 dark:bg-red-950/20 dark:text-red-400'
                             : 'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-850 text-zinc-500'
                         }`}
                       >
-                        Cliente Comensal
+                        Cliente
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCustomMockRole('empleado')}
+                        className={`py-2 px-1 text-center rounded-xl border text-[11px] font-semibold transition-all ${
+                          customMockRole === 'empleado'
+                            ? 'bg-red-50 border-red-500 text-red-655 dark:bg-red-950/20 dark:text-red-400'
+                            : 'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-850 text-zinc-500'
+                        }`}
+                      >
+                        Empleado
                       </button>
                       <button
                         type="button"
                         onClick={() => setCustomMockRole('admin')}
-                        className={`py-2 px-3 rounded-xl border text-xs font-semibold transition-all ${
+                        className={`py-2 px-1 text-center rounded-xl border text-[11px] font-semibold transition-all ${
                           customMockRole === 'admin'
-                            ? 'bg-red-50 border-red-500 text-red-600 dark:bg-red-950/20 dark:text-red-400'
+                            ? 'bg-red-50 border-red-500 text-red-650 dark:bg-red-950/20 dark:text-red-400'
                             : 'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-850 text-zinc-500'
                         }`}
                       >
-                        Administrador
+                        Jefe Admin
                       </button>
                     </div>
                   </div>

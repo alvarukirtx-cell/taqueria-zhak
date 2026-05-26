@@ -1,4 +1,4 @@
-export type Role = 'admin' | 'usuario';
+export type Role = 'admin' | 'usuario' | 'empleado';
 
 export interface UserProfile {
   uid: string;
@@ -61,6 +61,30 @@ export interface CancelledOrder {
   userEmail: string;
   reason: string;
   cancelledAt: string;
+}
+
+export interface Complaint {
+  id: string;
+  userId: string;
+  userEmail: string;
+  userName: string;
+  subject: string;
+  message: string;
+  status: 'pendiente' | 'revisada' | 'resuelta';
+  response?: string;
+  respondedBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ShiftTransfer {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  employeeEmail: string;
+  amount: number;
+  comments: string;
+  createdAt: string;
 }
 
 export interface DashboardStats {

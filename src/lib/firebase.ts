@@ -15,7 +15,7 @@ import {
   onSnapshot 
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { Product, Order, UserProfile, Sale, CancelledOrder, OrderStatus, Role } from '../types';
+import { Product, Order, UserProfile, Sale, CancelledOrder, OrderStatus, Role, Complaint, ShiftTransfer } from '../types';
 import { INITIAL_PRODUCTS } from '../data/defaultProducts';
 
 // --- Error Handlers (Mandatory Section 3 Skill Requirement) ---
@@ -193,6 +193,15 @@ export const DEVELOPER_ACCOUNTS: UserProfile[] = [
     phone: '55 4567 8901',
     address: 'Calle Hamburgo 88, Col. Juárez, CDMX',
     createdAt: new Date('2026-05-12T10:15:00Z').toISOString()
+  },
+  {
+    uid: 'employee_uid_eduardo_4',
+    email: 'eduardo.empleado@gmail.com',
+    displayName: 'Eduardo (Empleado)',
+    role: 'empleado',
+    phone: '55 5555 5555',
+    address: 'Calle Mesones 42, Col. Centro, CDMX',
+    createdAt: new Date('2026-05-20T09:00:00Z').toISOString()
   }
 ];
 
@@ -291,7 +300,7 @@ export const dbService = {
         
         // If not exists, provision new profile on-the-fly
         if (fallbackEmail) {
-          const role: Role = fallbackEmail === 'alvarukirtx@gmail.com' ? 'admin' : 'usuario';
+          const role: Role = fallbackEmail === 'alvarukirtx@gmail.com' ? 'admin' : (fallbackEmail === 'eduardo.empleado@gmail.com' || fallbackEmail.toLowerCase().includes('empleado') ? 'empleado' : 'usuario');
           const newProfile: UserProfile = {
             uid,
             email: fallbackEmail,
@@ -312,7 +321,7 @@ export const dbService = {
       const found = users.find(u => u.uid === uid);
       if (found) return found;
       if (fallbackEmail) {
-        const role: Role = fallbackEmail === 'alvarukirtx@gmail.com' ? 'admin' : 'usuario';
+        const role: Role = fallbackEmail === 'alvarukirtx@gmail.com' ? 'admin' : (fallbackEmail === 'eduardo.empleado@gmail.com' || fallbackEmail.toLowerCase().includes('empleado') ? 'empleado' : 'usuario');
         const newProfile: UserProfile = {
           uid,
           email: fallbackEmail,
@@ -501,6 +510,114 @@ export const dbService = {
       const records = await this.getCancelledOrders();
       records.push(cancelRecord);
       setLocalData(LOCAL_STORAGE_KEYS.CANCELLED, records);
+    }
+  },
+
+  // 6. COMPLAINTS OPERATIONS
+  async getComplaints(userId?: string): Promise<Complaint[]> {
+    if (isFirestoreActive(userId)) {
+      try {
+        const colRef = collection(db, 'quejas');
+        const qRef = userId ? query(colRef, where('userId', '==', userId)) : colRef;
+        const querySnapshot = await getDocs(qRef);
+        const list: Complaint[] = [];
+        querySnapshot.forEach((doc) => {
+          list.push(doc.data() as Complaint);
+        });
+        return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      } catch (err) {
+        handleFirestoreError(err, OperationType.LIST, 'quejas');
+        return [];
+      }
+    } else {
+      let list = getLocalData<Complaint[]>('taqueria_villa_quejas', []);
+      if (userId) {
+        list = list.filter(c => c.userId === userId);
+      }
+      return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    }
+  },
+
+  async saveComplaint(complaint: Complaint): Promise<void> {
+    if (isFirestoreActive()) {
+      try {
+        await setDoc(doc(db, 'quejas', complaint.id), complaint);
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, `quejas/${complaint.id}`);
+      }
+    } else {
+      const list = await this.getComplaints();
+      const index = list.findIndex(c => c.id === complaint.id);
+      if (index >= 0) {
+        list[index] = complaint;
+      } else {
+        list.push(complaint);
+      }
+      setLocalData('taqueria_villa_quejas', list);
+    }
+  },
+
+  async updateComplaintStatus(complaintId: string, status: 'pendiente' | 'revisada' | 'resuelta', response?: string, employeeName?: string): Promise<void> {
+    if (isFirestoreActive()) {
+      try {
+        const docRef = doc(db, 'quejas', complaintId);
+        const updates: any = {
+          status,
+          updatedAt: new Date().toISOString()
+        };
+        if (response !== undefined) {
+          updates.response = response;
+        }
+        if (employeeName !== undefined) {
+          updates.respondedBy = employeeName;
+        }
+        await updateDoc(docRef, updates);
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, `quejas/${complaintId}`);
+      }
+    } else {
+      const list = await this.getComplaints();
+      const index = list.findIndex(c => c.id === complaintId);
+      if (index >= 0) {
+        list[index].status = status;
+        list[index].updatedAt = new Date().toISOString();
+        if (response !== undefined) list[index].response = response;
+        if (employeeName !== undefined) list[index].respondedBy = employeeName;
+        setLocalData('taqueria_villa_quejas', list);
+      }
+    }
+  },
+
+  // 7. SHIFT TRANSFERS OPERATIONS
+  async getShiftTransfers(): Promise<ShiftTransfer[]> {
+    if (isFirestoreActive()) {
+      try {
+        const querySnapshot = await getDocs(collection(db, 'transferencias_ganancias'));
+        const list: ShiftTransfer[] = [];
+        querySnapshot.forEach((doc) => {
+          list.push(doc.data() as ShiftTransfer);
+        });
+        return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      } catch (err) {
+        handleFirestoreError(err, OperationType.LIST, 'transferencias_ganancias');
+        return [];
+      }
+    } else {
+      return getLocalData<ShiftTransfer[]>('taqueria_villa_transferencias', []).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    }
+  },
+
+  async saveShiftTransfer(transfer: ShiftTransfer): Promise<void> {
+    if (isFirestoreActive()) {
+      try {
+        await setDoc(doc(db, 'transferencias_ganancias', transfer.id), transfer);
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, `transferencias_ganancias/${transfer.id}`);
+      }
+    } else {
+      const list = await this.getShiftTransfers();
+      list.push(transfer);
+      setLocalData('taqueria_villa_transferencias', list);
     }
   }
 };
